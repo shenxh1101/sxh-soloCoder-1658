@@ -25,15 +25,57 @@ export function calcRemainingKm(
   return { remaining, nextKm, level };
 }
 
-export function getLastFuelRecordByVehicle<T extends { vehicleId: string; currentMileage: number; fuelDate: string }>(
+export function getLastFuelRecordByVehicle<T extends { vehicleId: string; currentMileage: number; fuelDate: string; createdAt?: string }>(
   records: T[],
   vehicleId: string,
-  beforeDate?: string
+  beforeDate?: string,
+  beforeCreatedAt?: string
 ): T | null {
   const filtered = records
-    .filter((r) => r.vehicleId === vehicleId && (!beforeDate || r.fuelDate < beforeDate))
-    .sort((a, b) => new Date(b.fuelDate).getTime() - new Date(a.fuelDate).getTime());
+    .filter((r) => {
+      if (r.vehicleId !== vehicleId) return false;
+      if (beforeDate && r.fuelDate >= beforeDate) return false;
+      if (beforeDate && r.fuelDate === beforeDate && beforeCreatedAt && (!r.createdAt || r.createdAt >= beforeCreatedAt)) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      const ad = new Date(a.fuelDate).getTime();
+      const bd = new Date(b.fuelDate).getTime();
+      if (bd !== ad) return bd - ad;
+      const ac = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bc = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      if (bc !== ac) return bc - ac;
+      return b.currentMileage - a.currentMileage;
+    });
   return filtered[0] || null;
+}
+
+export function calcEstimatedMaintenanceDate(
+  currentMileage: number,
+  lastMaintenanceKm: number,
+  intervalKm: number,
+  avgDailyKm: number = 200
+): { estimatedDate: string; estimatedDays: number } {
+  const nextKm = lastMaintenanceKm + intervalKm;
+  const remaining = Math.max(0, nextKm - currentMileage);
+  const estimatedDays = avgDailyKm > 0 ? Math.ceil(remaining / avgDailyKm) : 30;
+  const estimatedDate = new Date();
+  estimatedDate.setDate(estimatedDate.getDate() + estimatedDays);
+  return {
+    estimatedDate: estimatedDate.toISOString().split("T")[0],
+    estimatedDays,
+  };
+}
+
+export function getNext30Days(): string[] {
+  const days: string[] = [];
+  const now = new Date();
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(now);
+    d.setDate(now.getDate() + i);
+    days.push(d.toISOString().split("T")[0]);
+  }
+  return days;
 }
 
 export function formatYMD(date: Date | string): string {

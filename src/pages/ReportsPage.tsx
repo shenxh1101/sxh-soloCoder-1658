@@ -12,6 +12,7 @@ import {
   Car,
   X,
   Check,
+  AlertTriangle,
 } from "lucide-react";
 import {
   LineChart,
@@ -672,6 +673,14 @@ export default function ReportsPage() {
                     )}
                     style={isSelected && vehicleColor ? { borderColor: vehicleColor, color: vehicleColor } : undefined}
                   >
+                    {isSelected && (
+                      <div
+                        className="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-md"
+                        style={{ backgroundColor: vehicleColor }}
+                      >
+                        {colorIndex + 1}
+                      </div>
+                    )}
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-center gap-3">
                         <div
@@ -724,7 +733,31 @@ export default function ReportsPage() {
           </div>
 
           {/* 图表区域 */}
-          {selectedVehicles.length > 0 ? (
+          {selectedVehicles.length === 0 ? (
+            <div className="card rounded-[12px] p-16">
+              <div className="flex flex-col items-center justify-center text-deep-400">
+                <div className="w-20 h-20 rounded-2xl bg-deep-50 flex items-center justify-center mb-4">
+                  <Car className="w-10 h-10 text-deep-300" />
+                </div>
+                <p className="text-lg font-semibold text-deep-600 mb-2">请选择要对比的车辆</p>
+                <p className="text-sm text-deep-400">
+                  在上方选择最多 3 辆车，即可查看成本趋势对比分析
+                </p>
+              </div>
+            </div>
+          ) : selectedVehicles.length === 1 ? (
+            <div className="card rounded-[12px] p-16">
+              <div className="flex flex-col items-center justify-center">
+                <div className="w-20 h-20 rounded-2xl bg-yellow-50 flex items-center justify-center mb-4">
+                  <AlertTriangle className="w-10 h-10 text-yellow-500" />
+                </div>
+                <p className="text-lg font-semibold text-yellow-600 mb-2">请至少选择 2 辆车进行对比，最多可选择 3 辆</p>
+                <p className="text-sm text-deep-400">
+                  在上方继续选择车辆以进行成本趋势对比分析
+                </p>
+              </div>
+            </div>
+          ) : (
             <div className="space-y-6">
               {/* 近6个月油耗成本走势 */}
               <div className="card rounded-[12px] p-6">
@@ -916,18 +949,6 @@ export default function ReportsPage() {
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
-              </div>
-            </div>
-          ) : (
-            <div className="card rounded-[12px] p-16">
-              <div className="flex flex-col items-center justify-center text-deep-400">
-                <div className="w-20 h-20 rounded-2xl bg-deep-50 flex items-center justify-center mb-4">
-                  <Car className="w-10 h-10 text-deep-300" />
-                </div>
-                <p className="text-lg font-semibold text-deep-600 mb-2">请选择要对比的车辆</p>
-                <p className="text-sm text-deep-400">
-                  在上方选择最多 3 辆车，即可查看成本趋势对比分析
-                </p>
               </div>
             </div>
           )}

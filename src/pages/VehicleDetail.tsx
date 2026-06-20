@@ -118,6 +118,14 @@ export default function VehicleDetail() {
     MaintenanceStatus,
     { badge: string }
   > = {
+    pending_approval: {
+      badge:
+        "bg-deep-50 text-deep-600 border border-deep-200",
+    },
+    rejected: {
+      badge:
+        "bg-alert-red/15 text-alert-red border border-alert-red/30",
+    },
     pending: {
       badge:
         "bg-alert-yellow/15 text-alert-yellow border border-alert-yellow/30",

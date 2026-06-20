@@ -182,7 +182,7 @@ function buildMaintenanceRecords(): MaintenanceRecord[] {
     mileageAfter: 0,
     applyDate: monthsAgo(0, 18),
     finishDate: "",
-    status: "pending",
+    status: "pending_approval",
     notes: "等待配件",
     createdAt: monthsAgo(0, 18),
   });
@@ -196,9 +196,40 @@ function buildMaintenanceRecords(): MaintenanceRecord[] {
     mileageAfter: 0,
     applyDate: monthsAgo(0, 19),
     finishDate: "",
-    status: "pending",
+    status: "pending_approval",
     notes: "",
     createdAt: monthsAgo(0, 19),
+  });
+  records.push({
+    id: genId(),
+    vehicleId: "v2",
+    type: "fault",
+    description: "离合器打滑，需要更换",
+    workshop: "通达汽修厂",
+    cost: 0,
+    mileageAfter: 0,
+    applyDate: monthsAgo(0, 15),
+    finishDate: "",
+    status: "rejected",
+    rejectReason: "请先检查是否为拉线松动，无需立即更换离合器片",
+    rejectedAt: monthsAgo(0, 14),
+    notes: "",
+    createdAt: monthsAgo(0, 15),
+  });
+  records.push({
+    id: genId(),
+    vehicleId: "v3",
+    type: "routine",
+    description: "5000公里常规保养",
+    workshop: "华胜重卡维修",
+    cost: 0,
+    mileageAfter: 0,
+    applyDate: monthsAgo(0, 10),
+    finishDate: "",
+    status: "pending",
+    approvedAt: monthsAgo(0, 9),
+    notes: "",
+    createdAt: monthsAgo(0, 10),
   });
   return records;
 }

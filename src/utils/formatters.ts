@@ -46,8 +46,14 @@ export function maintenanceTypeLabel(type: "routine" | "fault" | "overhaul"): st
   return map[type] || type;
 }
 
-export function maintenanceStatusLabel(status: "pending" | "completed"): string {
-  return status === "pending" ? "待处理" : "已完成";
+export function maintenanceStatusLabel(status: "pending_approval" | "rejected" | "pending" | "completed"): string {
+  const map = {
+    pending_approval: "待审批",
+    rejected: "已驳回",
+    pending: "待处理",
+    completed: "已完成",
+  };
+  return map[status] || status;
 }
 
 export function monthLabel(monthStr: string): string {

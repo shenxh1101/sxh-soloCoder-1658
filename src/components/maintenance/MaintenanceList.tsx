@@ -9,6 +9,10 @@ import {
   Clock,
   DollarSign,
   MapPin,
+  ThumbsUp,
+  ThumbsDown,
+  AlertCircle,
+  Send,
 } from "lucide-react";
 import { useStore } from "@/store";
 import type { MaintenanceType, MaintenanceStatus } from "@/types";
@@ -44,9 +48,11 @@ export default function MaintenanceList({ vehicleId }: MaintenanceListProps) {
 
   // 弹窗状态
   const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
   const [selectedMaintenanceId, setSelectedMaintenanceId] = useState<
     string | null
   >(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   // 过滤和排序记录
   const filteredRecords = useMemo(() => {
@@ -83,11 +89,17 @@ export default function MaintenanceList({ vehicleId }: MaintenanceListProps) {
       });
     }
 
-    // 按日期倒序：pending 优先，然后按申请/完成日期
+    // 按状态优先级和日期排序
+    const statusOrder: Record<string, number> = {
+      pending_approval: 0,
+      pending: 1,
+      rejected: 2,
+      completed: 3,
+    };
     return records.sort((a, b) => {
-      // pending 排前面
-      if (a.status === "pending" && b.status === "completed") return -1;
-      if (a.status === "completed" && b.status === "pending") return 1;
+      const orderA = statusOrder[a.status] ?? 99;
+      const orderB = statusOrder[b.status] ?? 99;
+      if (orderA !== orderB) return orderA - orderB;
 
       const dateA = a.status === "completed" ? a.finishDate : a.applyDate;
       const dateB = b.status === "completed" ? b.finishDate : b.applyDate;
@@ -102,18 +114,6 @@ export default function MaintenanceList({ vehicleId }: MaintenanceListProps) {
     searchKeyword,
     getVehicleById,
   ]);
-
-  // 汇总统计
-  const summary = useMemo(() => {
-    const pending = filteredRecords.filter((r) => r.status === "pending").length;
-    const completed = filteredRecords.filter(
-      (r) => r.status === "completed"
-    ).length;
-    const totalCost = filteredRecords
-      .filter((r) => r.status === "completed")
-      .reduce((s, r) => s + r.cost, 0);
-    return { pending, completed, totalCost, total: filteredRecords.length };
-  }, [filteredRecords]);
 
   // 类型徽章颜色
   const typeBadgeClass: Record<MaintenanceType, string> = {
@@ -139,6 +139,53 @@ export default function MaintenanceList({ vehicleId }: MaintenanceListProps) {
     handleCloseModal();
   };
 
+  // 审批通过
+  const handleApprove = (id: string) => {
+    const confirmed = window.confirm("确认通过此维修申请？通过后将进入待处理状态。");
+    if (!confirmed) return;
+    useStore.getState().approveMaintenance(id);
+  };
+
+  // 打开驳回弹窗
+  const handleOpenReject = (id: string) => {
+    setSelectedMaintenanceId(id);
+    setRejectReason("");
+    setShowRejectModal(true);
+  };
+
+  // 关闭驳回弹窗
+  const handleCloseRejectModal = () => {
+    setShowRejectModal(false);
+    setSelectedMaintenanceId(null);
+    setRejectReason("");
+  };
+
+  // 执行驳回
+  const handleReject = () => {
+    if (!rejectReason.trim()) {
+      alert("请填写驳回原因");
+      return;
+    }
+    if (selectedMaintenanceId) {
+      useStore.getState().rejectMaintenance(selectedMaintenanceId, rejectReason.trim());
+      handleCloseRejectModal();
+    }
+  };
+
+  // 汇总统计更新：包含待审批和已驳回
+  const summary = useMemo(() => {
+    const pendingApproval = filteredRecords.filter((r) => r.status === "pending_approval").length;
+    const rejected = filteredRecords.filter((r) => r.status === "rejected").length;
+    const pending = filteredRecords.filter((r) => r.status === "pending").length;
+    const completed = filteredRecords.filter(
+      (r) => r.status === "completed"
+    ).length;
+    const totalCost = filteredRecords
+      .filter((r) => r.status === "completed")
+      .reduce((s, r) => s + r.cost, 0);
+    return { pendingApproval, rejected, pending, completed, totalCost, total: filteredRecords.length };
+  }, [filteredRecords]);
+
   return (
     <div className="card rounded-[12px] overflow-hidden">
       {/* 顶部工具栏 */}
@@ -153,6 +200,14 @@ export default function MaintenanceList({ vehicleId }: MaintenanceListProps) {
               <h3 className="section-title !mb-0">维修记录</h3>
               <p className="text-xs text-deep-400 mt-0.5">
                 共 {summary.total} 条 ·{" "}
+                <span className="text-deep-500 font-medium">
+                  待审批 {summary.pendingApproval}
+                </span>{" "}
+                ·{" "}
+                <span className="text-alert-red font-medium">
+                  已驳回 {summary.rejected}
+                </span>{" "}
+                ·{" "}
                 <span className="text-alert-yellow font-medium">
                   待处理 {summary.pending}
                 </span>{" "}
@@ -399,12 +454,25 @@ export default function MaintenanceList({ vehicleId }: MaintenanceListProps) {
                       )}
                     </td>
                     <td className="px-5 py-4 text-center whitespace-nowrap">
-                      {record.status === "pending" ? (
+                      {record.status === "pending_approval" && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-deep-50 text-deep-600 text-xs font-medium border border-deep-200">
+                          <Clock className="w-3 h-3" />
+                          {maintenanceStatusLabel(record.status)}
+                        </span>
+                      )}
+                      {record.status === "rejected" && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-alert-red/20 text-alert-red text-xs font-medium">
+                          <X className="w-3 h-3" />
+                          {maintenanceStatusLabel(record.status)}
+                        </span>
+                      )}
+                      {record.status === "pending" && (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-alert-yellow/20 text-alert-yellow text-xs font-medium">
                           <Clock className="w-3 h-3" />
                           {maintenanceStatusLabel(record.status)}
                         </span>
-                      ) : (
+                      )}
+                      {record.status === "completed" && (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-fuel-50 text-fuel-600 text-xs font-medium">
                           <CheckCircle2 className="w-3 h-3" />
                           {maintenanceStatusLabel(record.status)}
@@ -412,7 +480,25 @@ export default function MaintenanceList({ vehicleId }: MaintenanceListProps) {
                       )}
                     </td>
                     <td className="px-5 py-4 text-center whitespace-nowrap">
-                      {record.status === "pending" ? (
+                      {record.status === "pending_approval" && (
+                        <div className="inline-flex items-center gap-1">
+                          <button
+                            onClick={() => handleApprove(record.id)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-fuel-500 text-white text-xs font-medium hover:bg-fuel-600 transition-colors"
+                          >
+                            <ThumbsUp className="w-3.5 h-3.5" />
+                            通过
+                          </button>
+                          <button
+                            onClick={() => handleOpenReject(record.id)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-alert-red text-white text-xs font-medium hover:bg-alert-red/80 transition-colors"
+                          >
+                            <ThumbsDown className="w-3.5 h-3.5" />
+                            驳回
+                          </button>
+                        </div>
+                      )}
+                      {record.status === "pending" && (
                         <button
                           onClick={() => handleOpenComplete(record.id)}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fuel-500 text-white text-xs font-medium hover:bg-fuel-600 transition-colors shadow-sm"
@@ -420,7 +506,8 @@ export default function MaintenanceList({ vehicleId }: MaintenanceListProps) {
                           <CheckCircle2 className="w-3.5 h-3.5" />
                           完成维修
                         </button>
-                      ) : (
+                      )}
+                      {(record.status === "completed" || record.status === "rejected") && (
                         <span className="text-xs text-deep-400">--</span>
                       )}
                     </td>
@@ -467,6 +554,75 @@ export default function MaintenanceList({ vehicleId }: MaintenanceListProps) {
                 onSuccess={handleCompleteSuccess}
                 onCancel={handleCloseModal}
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 驳回原因弹窗 */}
+      {showRejectModal && selectedMaintenanceId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-deep-900/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg animate-slide-up">
+            {/* 弹窗头部 */}
+            <div className="flex items-center justify-between p-5 border-b border-deep-50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-alert-red/10 flex items-center justify-center">
+                  <ThumbsDown className="w-5 h-5 text-alert-red" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-deep-700">
+                    驳回维修申请
+                  </h3>
+                  <p className="text-xs text-deep-400 mt-0.5">
+                    请填写驳回原因，司机将能看到
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleCloseRejectModal}
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-deep-400 hover:text-deep-600 hover:bg-deep-50 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* 表单内容 */}
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="label">
+                  <AlertCircle className="w-4 h-4 inline mr-1 text-alert-red" />
+                  驳回原因 <span className="text-alert-red">*</span>
+                </label>
+                <textarea
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="请详细说明驳回原因，例如：建议先检查XXX，无需立即维修..."
+                  rows={4}
+                  className="input resize-none"
+                  autoFocus
+                />
+                {!rejectReason.trim() && (
+                  <p className="mt-1 text-xs text-alert-red">请填写驳回原因</p>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  onClick={handleCloseRejectModal}
+                  className="btn-secondary"
+                >
+                  <X className="w-4 h-4" />
+                  取消
+                </button>
+                <button
+                  onClick={handleReject}
+                  className="btn-primary bg-alert-red hover:bg-alert-red/90"
+                  disabled={!rejectReason.trim()}
+                >
+                  <Send className="w-4 h-4" />
+                  确认驳回
+                </button>
+              </div>
             </div>
           </div>
         </div>

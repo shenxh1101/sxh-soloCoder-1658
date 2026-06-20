@@ -20,10 +20,14 @@ import type {
   FuelRecordSource,
   ImportResult,
   ImportEntityType,
+  ImportPreviewResult,
+  ImportPreviewItem,
+  MaintenancePlanItem,
 } from "@/types";
 import {
   calcFuelConsumption,
   calcRemainingKm,
+  calcEstimatedMaintenanceDate,
   isSameMonth,
   lastNMonths,
 } from "@/utils/calculations";
@@ -51,7 +55,8 @@ interface StoreState {
   getLastFuelRecordByVehicle: (
     fuelRecords: FuelRecord[],
     vehicleId: string,
-    beforeDate?: string
+    beforeDate?: string,
+    beforeCreatedAt?: string
   ) => FuelRecord | null;
   getRuleByVehicle: (vehicleId: string) => MaintenanceRule | undefined;
   addVehicle: (v: Omit<Vehicle, "id" | "createdAt" | "updatedAt">) => Vehicle;
@@ -105,6 +110,13 @@ interface StoreState {
     entityType: ImportEntityType,
     csvText: string
   ) => ImportResult;
+  approveMaintenance: (id: string) => void;
+  rejectMaintenance: (id: string, reason: string) => void;
+  getMaintenancePlan: (days?: number) => MaintenancePlanItem[];
+  previewImportCSV: (
+    entityType: ImportEntityType,
+    csvText: string
+  ) => ImportPreviewResult;
 }
 
 function genId(): string {
@@ -114,29 +126,26 @@ function genId(): string {
 function getLastFuelRecordByVehicle(
   fuelRecords: FuelRecord[],
   vehicleId: string,
-  beforeDate?: string
+  beforeDate?: string,
+  beforeCreatedAt?: string
 ): FuelRecord | null {
-  const records = fuelRecords.filter((r) => r.vehicleId === vehicleId);
-  if (records.length === 0) return null;
-  if (beforeDate) {
-    const before = new Date(beforeDate).getTime();
-    const sorted = records
-      .filter((r) => new Date(r.fuelDate).getTime() < before)
-      .sort((a, b) => {
-        const ad = new Date(a.fuelDate).getTime();
-        const bd = new Date(b.fuelDate).getTime();
-        if (bd !== ad) return bd - ad;
-        return b.currentMileage - a.currentMileage;
-      });
-    return sorted[0] || null;
-  }
-  const sorted = [...records].sort((a, b) => {
-    const ad = new Date(a.fuelDate).getTime();
-    const bd = new Date(b.fuelDate).getTime();
-    if (bd !== ad) return bd - ad;
-    return b.currentMileage - a.currentMileage;
-  });
-  return sorted[0] || null;
+  const filtered = fuelRecords
+    .filter((r) => {
+      if (r.vehicleId !== vehicleId) return false;
+      if (beforeDate && r.fuelDate >= beforeDate) return false;
+      if (beforeDate && r.fuelDate === beforeDate && beforeCreatedAt && (!r.createdAt || r.createdAt >= beforeCreatedAt)) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      const ad = new Date(a.fuelDate).getTime();
+      const bd = new Date(b.fuelDate).getTime();
+      if (bd !== ad) return bd - ad;
+      const ac = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bc = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      if (bc !== ac) return bc - ac;
+      return b.currentMileage - a.currentMileage;
+    });
+  return filtered[0] || null;
 }
 
 export const useStore = create<StoreState>()(
@@ -158,13 +167,21 @@ export const useStore = create<StoreState>()(
         get().fuelRecords.filter((r) => r.vehicleId === vehicleId),
 
       getMaintenanceRecordsByVehicle: (vehicleId) =>
-        get().maintenanceRecords.filter((r) => r.vehicleId === vehicleId),
+        get()
+          .maintenanceRecords.filter((r) => r.vehicleId === vehicleId)
+          .sort((a, b) => {
+            const ad = new Date(a.applyDate).getTime();
+            const bd = new Date(b.applyDate).getTime();
+            if (bd !== ad) return bd - ad;
+            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+          }),
 
       getLastFuelRecordByVehicle: (
         fuelRecords,
         vehicleId,
-        beforeDate
-      ) => getLastFuelRecordByVehicle(fuelRecords, vehicleId, beforeDate),
+        beforeDate,
+        beforeCreatedAt
+      ) => getLastFuelRecordByVehicle(fuelRecords, vehicleId, beforeDate, beforeCreatedAt),
 
       getRuleByVehicle: (vehicleId) =>
         get().maintenanceRules.find((r) => r.vehicleId === vehicleId),
@@ -262,10 +279,12 @@ export const useStore = create<StoreState>()(
 
       addFuelRecord: (r) => {
         const { fuelRecords, getVehicleById, updateVehicle } = get();
+        const createdAt = new Date().toISOString();
         const last = getLastFuelRecordByVehicle(
           fuelRecords,
           r.vehicleId,
-          r.fuelDate
+          r.fuelDate,
+          createdAt
         );
         const vehicle = getVehicleById(r.vehicleId);
         const lastMileage = last
@@ -281,7 +300,7 @@ export const useStore = create<StoreState>()(
           id: genId(),
           source: "normal",
           fuelConsumption: consumption,
-          createdAt: new Date().toISOString(),
+          createdAt,
         };
 
         if (vehicle && r.currentMileage > vehicle.currentMileage) {
@@ -296,10 +315,12 @@ export const useStore = create<StoreState>()(
 
       addFuelRecordBackfill: (r) => {
         const { fuelRecords, getVehicleById } = get();
+        const createdAt = new Date().toISOString();
         const last = getLastFuelRecordByVehicle(
           fuelRecords,
           r.vehicleId,
-          r.fuelDate
+          r.fuelDate,
+          createdAt
         );
         const vehicle = getVehicleById(r.vehicleId);
         const lastMileage = last
@@ -315,7 +336,7 @@ export const useStore = create<StoreState>()(
           id: genId(),
           source: "backfill",
           fuelConsumption: consumption,
-          createdAt: new Date().toISOString(),
+          createdAt,
         };
         set((s) => ({
           fuelRecords: [...s.fuelRecords, newRecord],
@@ -326,6 +347,7 @@ export const useStore = create<StoreState>()(
       addMaintenanceRecord: (r) => {
         const newRecord: MaintenanceRecord = {
           ...r,
+          status: "pending_approval",
           id: genId(),
           createdAt: new Date().toISOString(),
         };
@@ -356,6 +378,35 @@ export const useStore = create<StoreState>()(
                   ...r,
                   ...data,
                   status: "completed",
+                }
+              : r
+          ),
+        }));
+      },
+
+      approveMaintenance: (id) => {
+        set((s) => ({
+          maintenanceRecords: s.maintenanceRecords.map((r) =>
+            r.id === id && r.status === "pending_approval"
+              ? {
+                  ...r,
+                  status: "pending",
+                  approvedAt: new Date().toISOString(),
+                }
+              : r
+          ),
+        }));
+      },
+
+      rejectMaintenance: (id, reason) => {
+        set((s) => ({
+          maintenanceRecords: s.maintenanceRecords.map((r) =>
+            r.id === id && r.status === "pending_approval"
+              ? {
+                  ...r,
+                  status: "rejected",
+                  rejectReason: reason,
+                  rejectedAt: new Date().toISOString(),
                 }
               : r
           ),
@@ -510,6 +561,42 @@ export const useStore = create<StoreState>()(
         return alerts.sort(
           (a, b) => levelOrder[a.level] - levelOrder[b.level] || a.remaining - b.remaining
         );
+      },
+
+      getMaintenancePlan: (days = 30) => {
+        const { vehicles, maintenanceRules } = get();
+        const plan: MaintenancePlanItem[] = [];
+        vehicles.forEach((v) => {
+          const rule = maintenanceRules.find((r) => r.vehicleId === v.id);
+          if (!rule || !rule.enabled) return;
+          const { remaining, nextKm, level } = calcRemainingKm(
+            v.currentMileage,
+            rule.lastMaintenanceKm,
+            rule.intervalKm,
+            rule.warningThreshold
+          );
+          const { estimatedDate, estimatedDays } = calcEstimatedMaintenanceDate(
+            v.currentMileage,
+            rule.lastMaintenanceKm,
+            rule.intervalKm,
+            200
+          );
+          if (estimatedDays <= days) {
+            plan.push({
+              vehicleId: v.id,
+              plate: v.plateNumber,
+              driverName: v.driverName,
+              currentMileage: v.currentMileage,
+              lastMaintenanceKm: rule.lastMaintenanceKm,
+              nextKm,
+              remainingKm: remaining,
+              estimatedDate,
+              estimatedDays,
+              level,
+            });
+          }
+        });
+        return plan.sort((a, b) => a.estimatedDays - b.estimatedDays);
       },
 
       setFilterMonth: (month) => {
@@ -675,10 +762,12 @@ export const useStore = create<StoreState>()(
               }
 
               const allRecords = [...get().fuelRecords, ...newRecords];
+              const createdAt = new Date().toISOString();
               const last = getLastFuelRecordByVehicle(
                 allRecords,
                 vehicleId,
-                fuelDate
+                fuelDate,
+                createdAt
               );
               const vehicle = get().vehicles.find((v) => v.id === vehicleId);
               const lastMileage = last
@@ -702,7 +791,7 @@ export const useStore = create<StoreState>()(
                 fuelDate,
                 source,
                 notes: getField("备注", row),
-                createdAt: new Date().toISOString(),
+                createdAt,
               });
               result.success++;
             } catch (e) {
@@ -822,6 +911,168 @@ export const useStore = create<StoreState>()(
           }));
         }
         return result;
+      },
+
+      previewImportCSV: (entityType, csvText) => {
+        const willAdd: ImportPreviewItem[] = [];
+        const willSkip: ImportPreviewItem[] = [];
+        const willError: ImportPreviewItem[] = [];
+        const rows = parseCSV(csvText);
+
+        if (rows.length < 2) {
+          return { willAdd, willSkip, willError, total: 0 };
+        }
+
+        const headers = rows[0].map((h) => h.trim());
+        const dataRows = rows.slice(1);
+        const total = dataRows.length;
+
+        if (entityType === "vehicle") {
+          dataRows.forEach((row, idx) => {
+            const rowNum = idx + 2;
+            try {
+              const validated = validateVehicleRow(row, headers);
+              if (!validated) {
+                willError.push({
+                  row: rowNum,
+                  data: row,
+                  status: "error",
+                  message: "缺少必填字段（车牌号、车型）",
+                });
+                return;
+              }
+              const existing = get().vehicles.find(
+                (v) => v.plateNumber === validated.plateNumber
+              );
+              if (existing) {
+                willSkip.push({
+                  row: rowNum,
+                  data: validated,
+                  status: "skip",
+                  message: `车牌号 ${validated.plateNumber} 已存在，跳过`,
+                });
+                return;
+              }
+              willAdd.push({
+                row: rowNum,
+                data: validated,
+                status: "add",
+              });
+            } catch (e) {
+              willError.push({
+                row: rowNum,
+                data: row,
+                status: "error",
+                message: e instanceof Error ? e.message : "解析失败",
+              });
+            }
+          });
+        } else if (entityType === "fuel") {
+          const getField = (name: string, row: string[]) =>
+            row[headers.indexOf(name)]?.trim() || "";
+          const vehicleMap: Record<string, string> = {};
+          get().vehicles.forEach((v) => {
+            vehicleMap[v.plateNumber] = v.id;
+          });
+          dataRows.forEach((row, idx) => {
+            const rowNum = idx + 2;
+            try {
+              const plate = getField("车牌号", row);
+              const vehicleId = vehicleMap[plate];
+              if (!vehicleId) {
+                willError.push({
+                  row: rowNum,
+                  data: row,
+                  status: "error",
+                  message: `找不到车牌号 ${plate}`,
+                });
+                return;
+              }
+              const fuelAmount = parseFloat(getField("加油量(L)", row));
+              const fuelCost = parseFloat(getField("金额(元)", row));
+              const currentMileage = parseInt(getField("当前里程", row));
+
+              if (!fuelAmount || !currentMileage || !fuelCost) {
+                willError.push({
+                  row: rowNum,
+                  data: row,
+                  status: "error",
+                  message: "缺少必填字段（加油量、当前里程、金额）",
+                });
+                return;
+              }
+
+              willAdd.push({
+                row: rowNum,
+                data: {
+                  plate,
+                  fuelAmount,
+                  fuelCost,
+                  currentMileage,
+                },
+                status: "add",
+              });
+            } catch (e) {
+              willError.push({
+                row: rowNum,
+                data: row,
+                status: "error",
+                message: e instanceof Error ? e.message : "解析失败",
+              });
+            }
+          });
+        } else if (entityType === "maintenance") {
+          const getField = (name: string, row: string[]) =>
+            row[headers.indexOf(name)]?.trim() || "";
+          const vehicleMap: Record<string, string> = {};
+          get().vehicles.forEach((v) => {
+            vehicleMap[v.plateNumber] = v.id;
+          });
+          dataRows.forEach((row, idx) => {
+            const rowNum = idx + 2;
+            try {
+              const plate = getField("车牌号", row);
+              const vehicleId = vehicleMap[plate];
+              if (!vehicleId) {
+                willError.push({
+                  row: rowNum,
+                  data: row,
+                  status: "error",
+                  message: `找不到车牌号 ${plate}`,
+                });
+                return;
+              }
+              const description = getField("故障描述", row);
+              if (!description) {
+                willError.push({
+                  row: rowNum,
+                  data: row,
+                  status: "error",
+                  message: "缺少必填字段（故障描述）",
+                });
+                return;
+              }
+              willAdd.push({
+                row: rowNum,
+                data: {
+                  plate,
+                  description,
+                  type: getField("维修类型", row),
+                },
+                status: "add",
+              });
+            } catch (e) {
+              willError.push({
+                row: rowNum,
+                data: row,
+                status: "error",
+                message: e instanceof Error ? e.message : "解析失败",
+              });
+            }
+          });
+        }
+
+        return { willAdd, willSkip, willError, total };
       },
     }),
     {

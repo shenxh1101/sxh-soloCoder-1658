@@ -42,7 +42,7 @@ export interface FuelRecord {
 }
 
 export type MaintenanceType = "routine" | "fault" | "overhaul";
-export type MaintenanceStatus = "pending" | "completed";
+export type MaintenanceStatus = "pending_approval" | "rejected" | "pending" | "completed";
 
 export interface MaintenanceRecord {
   id: string;
@@ -55,6 +55,9 @@ export interface MaintenanceRecord {
   applyDate: string;
   finishDate: string;
   status: MaintenanceStatus;
+  rejectReason?: string;
+  approvedAt?: string;
+  rejectedAt?: string;
   notes?: string;
   createdAt: string;
 }
@@ -66,6 +69,19 @@ export interface MaintenanceRule {
   lastMaintenanceKm: number;
   warningThreshold: number;
   enabled: boolean;
+}
+
+export interface MaintenancePlanItem {
+  vehicleId: string;
+  plate: string;
+  driverName: string;
+  currentMileage: number;
+  lastMaintenanceKm: number;
+  nextKm: number;
+  remainingKm: number;
+  estimatedDate: string;
+  estimatedDays: number;
+  level: AlertLevel;
 }
 
 export interface FuelRankItem {
@@ -104,6 +120,20 @@ export interface ImportResult {
   failed: number;
   skipped: number;
   errors: Array<{ row: number; message: string }>;
+  total: number;
+}
+
+export interface ImportPreviewItem<T = any> {
+  row: number;
+  data: T;
+  status: "add" | "skip" | "error";
+  message?: string;
+}
+
+export interface ImportPreviewResult<T = any> {
+  willAdd: ImportPreviewItem<T>[];
+  willSkip: ImportPreviewItem<T>[];
+  willError: ImportPreviewItem<T>[];
   total: number;
 }
 

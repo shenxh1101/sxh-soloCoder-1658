@@ -9,7 +9,6 @@ import {
   Save,
   X,
   Calculator,
-  AlertTriangle,
   History,
 } from "lucide-react";
 import { useStore } from "@/store";
@@ -39,6 +38,7 @@ export default function FuelForm({
   } = useStore();
 
   const isBackfill = mode === "backfill";
+  const beforeCreatedAt = new Date().toISOString();
 
   const [formData, setFormData] = useState({
     vehicleId: defaultVehicleId || "",
@@ -51,7 +51,6 @@ export default function FuelForm({
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [mileageWarning, setMileageWarning] = useState<string | null>(null);
 
   useEffect(() => {
     if (defaultVehicleId) {
@@ -103,14 +102,10 @@ export default function FuelForm({
         return next;
       });
     }
-    if (name === "currentMileage" || name === "vehicleId") {
-      setMileageWarning(null);
-    }
   };
 
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
-    setMileageWarning(null);
 
     if (!formData.vehicleId) {
       newErrors.vehicleId = "请选择车辆";
@@ -137,9 +132,7 @@ export default function FuelForm({
         if (formData.currentMileage < vehicle.initialMileage) {
           newErrors.currentMileage = `里程不能低于初始里程 ${formatLiters(vehicle.initialMileage)}`;
         } else if (!isBackfill && formData.currentMileage <= vehicle.currentMileage) {
-          setMileageWarning(
-            `当前里程（${formatLiters(formData.currentMileage)}）低于或等于车辆当前里程（${formatLiters(vehicle.currentMileage)}）。请使用「历史补录」入口录入旧数据。`
-          );
+          newErrors.currentMileage = `里程必须大于当前里程 ${formatLiters(vehicle.currentMileage)}`;
         }
       }
     }
@@ -151,7 +144,6 @@ export default function FuelForm({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
-    if (mileageWarning && !isBackfill) return;
 
     const recordData = {
       vehicleId: formData.vehicleId,
@@ -194,15 +186,7 @@ export default function FuelForm({
           )}
         </div>
 
-        {mileageWarning && !isBackfill && (
-          <div className="bg-alert-red/5 border border-alert-red/20 rounded-xl p-4 flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-alert-red shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-alert-red">里程异常</p>
-              <p className="text-sm text-alert-red/80 mt-1">{mileageWarning}</p>
-            </div>
-          </div>
-        )}
+
 
         {isBackfill && (
           <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 flex items-start gap-3">
@@ -348,9 +332,6 @@ export default function FuelForm({
               className={cn(
                 "input num",
                 errors.currentMileage &&
-                  "border-alert-red focus:ring-alert-red/30 focus:border-alert-red",
-                mileageWarning &&
-                  !isBackfill &&
                   "border-alert-red focus:ring-alert-red/30 focus:border-alert-red"
               )}
             />
@@ -409,11 +390,7 @@ export default function FuelForm({
           </button>
           <button
             type="submit"
-            className={cn(
-              "btn-primary",
-              mileageWarning && !isBackfill && "opacity-50 cursor-not-allowed"
-            )}
-            disabled={!!(mileageWarning && !isBackfill)}
+            className="btn-primary"
           >
             <Save className="w-4 h-4" />
             {isBackfill ? "补录保存" : "保存记录"}
@@ -426,6 +403,7 @@ export default function FuelForm({
         fuelAmount={formData.fuelAmount}
         currentMileage={formData.currentMileage}
         fuelDate={formData.fuelDate}
+        beforeCreatedAt={beforeCreatedAt}
       />
     </div>
   );
