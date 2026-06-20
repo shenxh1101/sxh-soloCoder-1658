@@ -7,6 +7,7 @@ import FuelPage from "@/pages/FuelPage";
 import MaintenancePage from "@/pages/MaintenancePage";
 import ReportsPage from "@/pages/ReportsPage";
 import RemindersPage from "@/pages/RemindersPage";
+import SettingsPage from "@/pages/SettingsPage";
 
 export default function App() {
   return (
@@ -16,13 +17,16 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/vehicles" element={<VehicleList />} />
           <Route path="/vehicles/new" element={<VehicleList />} />
+          <Route path="/vehicles/:id/edit" element={<VehicleList />} />
           <Route path="/vehicles/:id" element={<VehicleDetail />} />
           <Route path="/fuel" element={<FuelPage />} />
           <Route path="/fuel/new" element={<FuelPage />} />
+          <Route path="/fuel/backfill" element={<FuelPage />} />
           <Route path="/maintenance" element={<MaintenancePage />} />
           <Route path="/maintenance/new" element={<MaintenancePage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/reminders" element={<RemindersPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Dashboard />} />
         </Routes>
       </Layout>

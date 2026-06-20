@@ -12,6 +12,20 @@ export interface Vehicle {
   updatedAt: string;
 }
 
+export interface DriverChangeRecord {
+  id: string;
+  vehicleId: string;
+  oldDriverName: string;
+  oldDriverPhone: string;
+  newDriverName: string;
+  newDriverPhone: string;
+  changeDate: string;
+  reason?: string;
+  createdAt: string;
+}
+
+export type FuelRecordSource = "normal" | "backfill";
+
 export interface FuelRecord {
   id: string;
   vehicleId: string;
@@ -22,6 +36,7 @@ export interface FuelRecord {
   fuelConsumption: number | null;
   gasStation: string;
   fuelDate: string;
+  source: FuelRecordSource;
   notes?: string;
   createdAt: string;
 }
@@ -83,3 +98,13 @@ export interface MaintenanceAlert {
   remaining: number;
   level: AlertLevel;
 }
+
+export interface ImportResult {
+  success: number;
+  failed: number;
+  skipped: number;
+  errors: Array<{ row: number; message: string }>;
+  total: number;
+}
+
+export type ImportEntityType = "vehicle" | "fuel" | "maintenance";

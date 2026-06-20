@@ -10,10 +10,12 @@ const breadcrumbMap: Record<string, string> = {
   "/vehicles/new": "新增车辆",
   "/fuel": "加油管理",
   "/fuel/new": "新增加油记录",
+  "/fuel/backfill": "历史加油补录",
   "/maintenance": "维修管理",
   "/maintenance/new": "新增维修记录",
   "/reports": "报表中心",
   "/reminders": "保养提醒",
+  "/settings": "系统设置",
 };
 
 // 月份选项数据
@@ -36,8 +38,14 @@ export default function Header({ onMenuToggle }: HeaderProps) {
   const [searchValue, setSearchValue] = useState("");
   const [selectedMonth, setSelectedMonth] = useState("2026-06");
 
-  // 获取当前路径对应的面包屑文本
-  const currentBreadcrumb = breadcrumbMap[location.pathname] || "未知页面";
+    // 获取当前路径对应的面包屑文本
+  const getBreadcrumb = (pathname: string): string => {
+    if (breadcrumbMap[pathname]) return breadcrumbMap[pathname];
+    if (/^\/vehicles\/[^/]+\/edit$/.test(pathname)) return "编辑车辆";
+    if (/^\/vehicles\/[^/]+$/.test(pathname)) return "车辆详情";
+    return "未知页面";
+  };
+  const currentBreadcrumb = getBreadcrumb(location.pathname);
 
   // 未读通知数量
   const unreadCount = 5;

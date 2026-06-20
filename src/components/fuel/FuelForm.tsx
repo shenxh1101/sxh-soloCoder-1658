@@ -1,5 +1,17 @@
 import { useState, useEffect, useMemo } from "react";
-import { Truck, Fuel, DollarSign, MapPin, Calendar, FileText, Save, X, Calculator } from "lucide-react";
+import {
+  Truck,
+  Fuel,
+  DollarSign,
+  MapPin,
+  Calendar,
+  FileText,
+  Save,
+  X,
+  Calculator,
+  AlertTriangle,
+  History,
+} from "lucide-react";
 import { useStore } from "@/store";
 import { formatCurrency, formatLiters } from "@/utils/formatters";
 import { formatYMD } from "@/utils/calculations";
@@ -7,24 +19,27 @@ import { cn } from "@/lib/utils";
 import FuelPreview from "./FuelPreview";
 
 interface FuelFormProps {
+  mode?: "normal" | "backfill";
   onSuccess?: () => void;
   onCancel?: () => void;
   defaultVehicleId?: string;
 }
 
-/**
- * 加油录入表单组件
- * - 双列布局：左侧表单 + 右侧实时预览
- * - 实时计算单价 = 金额 / 加油量
- */
 export default function FuelForm({
+  mode = "normal",
   onSuccess,
   onCancel,
   defaultVehicleId,
 }: FuelFormProps) {
-  const { vehicles, addFuelRecord, getVehicleById } = useStore();
+  const {
+    vehicles,
+    addFuelRecord,
+    addFuelRecordBackfill,
+    getVehicleById,
+  } = useStore();
 
-  // 表单状态
+  const isBackfill = mode === "backfill";
+
   const [formData, setFormData] = useState({
     vehicleId: defaultVehicleId || "",
     fuelAmount: 0,
@@ -36,8 +51,8 @@ export default function FuelForm({
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [mileageWarning, setMileageWarning] = useState<string | null>(null);
 
-  // 设置默认车辆
   useEffect(() => {
     if (defaultVehicleId) {
       const vehicle = getVehicleById(defaultVehicleId);
@@ -51,9 +66,8 @@ export default function FuelForm({
     }
   }, [defaultVehicleId, getVehicleById]);
 
-  // 切换车辆时，自动填充当前里程
   useEffect(() => {
-    if (formData.vehicleId && !formData.currentMileage) {
+    if (formData.vehicleId && formData.currentMileage === 0) {
       const vehicle = getVehicleById(formData.vehicleId);
       if (vehicle) {
         setFormData((prev) => ({
@@ -64,7 +78,6 @@ export default function FuelForm({
     }
   }, [formData.vehicleId, formData.currentMileage, getVehicleById]);
 
-  // 实时计算单价
   const pricePerLiter = useMemo(() => {
     if (formData.fuelAmount > 0 && formData.fuelCost > 0) {
       return +(formData.fuelCost / formData.fuelAmount).toFixed(2);
@@ -72,7 +85,6 @@ export default function FuelForm({
     return 0;
   }, [formData.fuelAmount, formData.fuelCost]);
 
-  // 表单字段变更
   const handleChange = (
     e: React.ChangeEvent<
       HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
@@ -84,7 +96,6 @@ export default function FuelForm({
       ...prev,
       [name]: numericFields.includes(name) ? Number(value) || 0 : value,
     }));
-    // 清除对应错误
     if (errors[name]) {
       setErrors((prev) => {
         const next = { ...prev };
@@ -92,11 +103,14 @@ export default function FuelForm({
         return next;
       });
     }
+    if (name === "currentMileage" || name === "vehicleId") {
+      setMileageWarning(null);
+    }
   };
 
-  // 校验
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
+    setMileageWarning(null);
 
     if (!formData.vehicleId) {
       newErrors.vehicleId = "请选择车辆";
@@ -117,15 +131,16 @@ export default function FuelForm({
       newErrors.fuelDate = "请选择加油日期";
     }
 
-    // 检查里程是否合理
     if (formData.vehicleId && formData.currentMileage > 0) {
       const vehicle = getVehicleById(formData.vehicleId);
-      if (
-        vehicle &&
-        formData.currentMileage < vehicle.initialMileage &&
-        formData.currentMileage < vehicle.currentMileage
-      ) {
-        newErrors.currentMileage = "里程不能低于初始或当前里程";
+      if (vehicle) {
+        if (formData.currentMileage < vehicle.initialMileage) {
+          newErrors.currentMileage = `里程不能低于初始里程 ${formatLiters(vehicle.initialMileage)}`;
+        } else if (!isBackfill && formData.currentMileage <= vehicle.currentMileage) {
+          setMileageWarning(
+            `当前里程（${formatLiters(formData.currentMileage)}）低于或等于车辆当前里程（${formatLiters(vehicle.currentMileage)}）。请使用「历史补录」入口录入旧数据。`
+          );
+        }
       }
     }
 
@@ -133,12 +148,12 @@ export default function FuelForm({
     return Object.keys(newErrors).length === 0;
   };
 
-  // 提交
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
+    if (mileageWarning && !isBackfill) return;
 
-    addFuelRecord({
+    const recordData = {
       vehicleId: formData.vehicleId,
       fuelAmount: formData.fuelAmount,
       fuelCost: formData.fuelCost,
@@ -147,16 +162,60 @@ export default function FuelForm({
       gasStation: formData.gasStation,
       fuelDate: new Date(formData.fuelDate).toISOString(),
       notes: formData.notes,
-    });
+    };
+
+    if (isBackfill) {
+      addFuelRecordBackfill(recordData);
+    } else {
+      addFuelRecord(recordData);
+    }
 
     onSuccess?.();
   };
 
   return (
-    <div className="grid grid-cols-2 gap-6">
-      {/* 左侧表单 */}
-      <form onSubmit={handleSubmit} className="card p-6 rounded-[12px] space-y-5">
-        {/* 车牌号选择 */}
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="flex items-center gap-2 mb-2">
+          {isBackfill ? (
+            <>
+              <History className="w-5 h-5 text-orange-500" />
+              <span className="text-sm font-medium text-orange-600 bg-orange-50 px-2 py-1 rounded">
+                历史补录模式
+              </span>
+            </>
+          ) : (
+            <>
+              <Calculator className="w-5 h-5 text-deep-500" />
+              <span className="text-sm font-medium text-deep-600 bg-deep-50 px-2 py-1 rounded">
+                普通录入模式
+              </span>
+            </>
+          )}
+        </div>
+
+        {mileageWarning && !isBackfill && (
+          <div className="bg-alert-red/5 border border-alert-red/20 rounded-xl p-4 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-alert-red shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-alert-red">里程异常</p>
+              <p className="text-sm text-alert-red/80 mt-1">{mileageWarning}</p>
+            </div>
+          </div>
+        )}
+
+        {isBackfill && (
+          <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 flex items-start gap-3">
+            <History className="w-5 h-5 text-orange-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-orange-700">历史补录说明</p>
+              <p className="text-sm text-orange-600 mt-1">
+                补录模式不会更新车辆当前里程，适合录入遗漏的历史加油记录。系统会根据加油日期自动查找上次记录计算油耗。
+              </p>
+            </div>
+          </div>
+        )}
+
         <div>
           <label className="label">
             <Truck className="w-4 h-4 inline mr-1 text-orange-500" />
@@ -166,7 +225,11 @@ export default function FuelForm({
             name="vehicleId"
             value={formData.vehicleId}
             onChange={handleChange}
-            className={cn("input", errors.vehicleId && "border-alert-red focus:ring-alert-red/30 focus:border-alert-red")}
+            className={cn(
+              "input",
+              errors.vehicleId &&
+                "border-alert-red focus:ring-alert-red/30 focus:border-alert-red"
+            )}
           >
             <option value="">请选择车辆</option>
             {vehicles.map((v) => (
@@ -180,7 +243,6 @@ export default function FuelForm({
           )}
         </div>
 
-        {/* 加油量 + 加油金额 */}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="label">
@@ -195,10 +257,16 @@ export default function FuelForm({
               placeholder="0.00"
               step="0.01"
               min="0"
-              className={cn("input num", errors.fuelAmount && "border-alert-red focus:ring-alert-red/30 focus:border-alert-red")}
+              className={cn(
+                "input num",
+                errors.fuelAmount &&
+                  "border-alert-red focus:ring-alert-red/30 focus:border-alert-red"
+              )}
             />
             {errors.fuelAmount && (
-              <p className="mt-1 text-xs text-alert-red">{errors.fuelAmount}</p>
+              <p className="mt-1 text-xs text-alert-red">
+                {errors.fuelAmount}
+              </p>
             )}
           </div>
 
@@ -215,7 +283,11 @@ export default function FuelForm({
               placeholder="0.00"
               step="0.01"
               min="0"
-              className={cn("input num", errors.fuelCost && "border-alert-red focus:ring-alert-red/30 focus:border-alert-red")}
+              className={cn(
+                "input num",
+                errors.fuelCost &&
+                  "border-alert-red focus:ring-alert-red/30 focus:border-alert-red"
+              )}
             />
             {errors.fuelCost && (
               <p className="mt-1 text-xs text-alert-red">{errors.fuelCost}</p>
@@ -223,25 +295,47 @@ export default function FuelForm({
           </div>
         </div>
 
-        {/* 实时单价显示 */}
-        <div className="p-3 rounded-lg bg-deep-50/60 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sm text-deep-500">
-            <Calculator className="w-4 h-4" />
-            实时计算单价
-          </div>
-          <span className="num text-lg font-bold text-orange-600">
-            {pricePerLiter > 0 ? formatCurrency(pricePerLiter, 2) : "--"}
-            <span className="text-sm font-normal ml-0.5 text-deep-400">
-              / L
-            </span>
-          </span>
-        </div>
-
-        {/* 当前里程 + 加油站 */}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="label">
-              <MapPin className="w-4 h-4 inline mr-1 text-deep-400" />
+              <DollarSign className="w-4 h-4 inline mr-1 text-deep-400" />
+              计算单价
+            </label>
+            <div className="input num flex items-center justify-between bg-deep-50 text-deep-600">
+              <span className="font-mono">{formatCurrency(pricePerLiter)}</span>
+              <span className="text-xs text-deep-400">元 / 升</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="label">
+              <MapPin className="w-4 h-4 inline mr-1 text-orange-500" />
+              加油站 <span className="text-alert-red">*</span>
+            </label>
+            <input
+              type="text"
+              name="gasStation"
+              value={formData.gasStation}
+              onChange={handleChange}
+              placeholder="如：中石化XX加油站"
+              className={cn(
+                "input",
+                errors.gasStation &&
+                  "border-alert-red focus:ring-alert-red/30 focus:border-alert-red"
+              )}
+            />
+            {errors.gasStation && (
+              <p className="mt-1 text-xs text-alert-red">
+                {errors.gasStation}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="label">
+              <Calculator className="w-4 h-4 inline mr-1 text-fuel-500" />
               当前里程 (km) <span className="text-alert-red">*</span>
             </label>
             <input
@@ -251,51 +345,44 @@ export default function FuelForm({
               onChange={handleChange}
               placeholder="0"
               min="0"
-              className={cn("input num", errors.currentMileage && "border-alert-red focus:ring-alert-red/30 focus:border-alert-red")}
+              className={cn(
+                "input num",
+                errors.currentMileage &&
+                  "border-alert-red focus:ring-alert-red/30 focus:border-alert-red",
+                mileageWarning &&
+                  !isBackfill &&
+                  "border-alert-red focus:ring-alert-red/30 focus:border-alert-red"
+              )}
             />
             {errors.currentMileage && (
-              <p className="mt-1 text-xs text-alert-red">{errors.currentMileage}</p>
+              <p className="mt-1 text-xs text-alert-red">
+                {errors.currentMileage}
+              </p>
             )}
           </div>
 
           <div>
             <label className="label">
-              <MapPin className="w-4 h-4 inline mr-1 text-deep-400" />
-              加油站 <span className="text-alert-red">*</span>
+              <Calendar className="w-4 h-4 inline mr-1 text-deep-400" />
+              加油日期 <span className="text-alert-red">*</span>
             </label>
             <input
-              type="text"
-              name="gasStation"
-              value={formData.gasStation}
+              type="date"
+              name="fuelDate"
+              value={formData.fuelDate}
               onChange={handleChange}
-              placeholder="例如：中石化XX站"
-              className={cn("input", errors.gasStation && "border-alert-red focus:ring-alert-red/30 focus:border-alert-red")}
+              className={cn(
+                "input",
+                errors.fuelDate &&
+                  "border-alert-red focus:ring-alert-red/30 focus:border-alert-red"
+              )}
             />
-            {errors.gasStation && (
-              <p className="mt-1 text-xs text-alert-red">{errors.gasStation}</p>
+            {errors.fuelDate && (
+              <p className="mt-1 text-xs text-alert-red">{errors.fuelDate}</p>
             )}
           </div>
         </div>
 
-        {/* 加油日期 */}
-        <div>
-          <label className="label">
-            <Calendar className="w-4 h-4 inline mr-1 text-deep-400" />
-            加油日期 <span className="text-alert-red">*</span>
-          </label>
-          <input
-            type="date"
-            name="fuelDate"
-            value={formData.fuelDate}
-            onChange={handleChange}
-            className={cn("input", errors.fuelDate && "border-alert-red focus:ring-alert-red/30 focus:border-alert-red")}
-          />
-          {errors.fuelDate && (
-            <p className="mt-1 text-xs text-alert-red">{errors.fuelDate}</p>
-          )}
-        </div>
-
-        {/* 备注 */}
         <div>
           <label className="label">
             <FileText className="w-4 h-4 inline mr-1 text-deep-400" />
@@ -305,32 +392,40 @@ export default function FuelForm({
             name="notes"
             value={formData.notes}
             onChange={handleChange}
-            placeholder="可填写油品标号、优惠信息等..."
-            rows={3}
+            placeholder="选填"
+            rows={2}
             className="input resize-none"
           />
         </div>
 
-        {/* 操作按钮 */}
-        <div className="flex items-center justify-end gap-3 pt-2 border-t border-deep-50">
-          {onCancel && (
-            <button type="button" onClick={onCancel} className="btn-secondary">
-              <X className="w-4 h-4" />
-              取消
-            </button>
-          )}
-          <button type="submit" className="btn-primary">
+        <div className="flex items-center justify-between pt-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="btn-secondary"
+          >
+            <X className="w-4 h-4" />
+            取消
+          </button>
+          <button
+            type="submit"
+            className={cn(
+              "btn-primary",
+              mileageWarning && !isBackfill && "opacity-50 cursor-not-allowed"
+            )}
+            disabled={!!(mileageWarning && !isBackfill)}
+          >
             <Save className="w-4 h-4" />
-            确认录入
+            {isBackfill ? "补录保存" : "保存记录"}
           </button>
         </div>
       </form>
 
-      {/* 右侧实时预览 */}
       <FuelPreview
         vehicleId={formData.vehicleId}
         fuelAmount={formData.fuelAmount}
         currentMileage={formData.currentMileage}
+        fuelDate={formData.fuelDate}
       />
     </div>
   );

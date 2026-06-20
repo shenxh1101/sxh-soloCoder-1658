@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Fuel, Wrench, DollarSign } from "lucide-react";
+import { Fuel, Wrench, DollarSign, Edit2, Trash2, History, AlertTriangle } from "lucide-react";
 import type { Vehicle } from "@/types";
 import { useStore } from "@/store";
 import { formatKm, formatConsumption, formatCurrency } from "@/utils/formatters";
 import { cn } from "@/lib/utils";
+import DriverChangeHistory from "./DriverChangeHistory";
 
 interface VehicleCardProps {
   vehicle: Vehicle;
@@ -16,7 +18,9 @@ interface VehicleCardProps {
  */
 export default function VehicleCard({ vehicle, onClick }: VehicleCardProps) {
   const navigate = useNavigate();
-  const { getFuelRecordsByVehicle, getMaintenanceRecordsByVehicle } = useStore();
+  const { getFuelRecordsByVehicle, getMaintenanceRecordsByVehicle, deleteVehicle } = useStore();
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   // 计算车辆统计数据
   const fuelRecords = getFuelRecordsByVehicle(vehicle.id);
@@ -65,7 +69,72 @@ export default function VehicleCard({ vehicle, onClick }: VehicleCardProps) {
     }
   };
 
+  const handleEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigate(`/vehicles/${vehicle.id}/edit`);
+  };
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowDeleteConfirm(true);
+  };
+
+  const handleHistory = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowHistory(true);
+  };
+
+  const confirmDelete = () => {
+    deleteVehicle(vehicle.id);
+    setShowDeleteConfirm(false);
+  };
+
   return (
+    <>
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowDeleteConfirm(false)}
+          />
+          <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4 p-6 animate-scale-in">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-full bg-alert-red/10 flex items-center justify-center">
+                <AlertTriangle className="w-6 h-6 text-alert-red" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-deep-700">确认删除</h3>
+                <p className="text-sm text-deep-400 mt-0.5">{vehicle.plateNumber}</p>
+              </div>
+            </div>
+            <p className="text-sm text-deep-500 mb-6">
+              删除后将同时清除该车辆的所有加油记录、维修记录和司机变更历史，此操作不可恢复。
+            </p>
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="btn-secondary"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="btn-danger"
+              >
+                <Trash2 className="w-4 h-4" />
+                确认删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <DriverChangeHistory
+        vehicleId={vehicle.id}
+        vehiclePlate={vehicle.plateNumber}
+        open={showHistory}
+        onClose={() => setShowHistory(false)}
+      />
     <div
       onClick={handleClick}
       className={cn(
@@ -88,6 +157,31 @@ export default function VehicleCard({ vehicle, onClick }: VehicleCardProps) {
           <p className="text-sm text-deep-400 mt-0.5 truncate">
             {vehicle.model}
           </p>
+        </div>
+
+        {/* 操作按钮组 */}
+        <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            onClick={handleEdit}
+            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-deep-100 text-deep-400 hover:text-deep-600 transition-colors"
+            title="编辑"
+          >
+            <Edit2 className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleDelete}
+            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-alert-red/10 text-deep-400 hover:text-alert-red transition-colors"
+            title="删除"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleHistory}
+            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-orange-50 text-deep-400 hover:text-orange-500 transition-colors"
+            title="司机变更历史"
+          >
+            <History className="w-4 h-4" />
+          </button>
         </div>
 
         {/* 司机头像 */}
@@ -170,5 +264,6 @@ export default function VehicleCard({ vehicle, onClick }: VehicleCardProps) {
         </div>
       </div>
     </div>
+    </>
   );
 }

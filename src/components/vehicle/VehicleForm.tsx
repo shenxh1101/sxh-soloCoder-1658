@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Truck, User, Phone, Calendar, FileText, Save, X } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Truck, User, Phone, Calendar, FileText, Save, X, Trash2, AlertTriangle, Users } from "lucide-react";
 import { useStore } from "@/store";
 import { formatDate } from "@/utils/formatters";
 import { formatYMD } from "@/utils/calculations";
@@ -20,9 +20,11 @@ export default function VehicleForm({
   vehicleId,
   onSuccess,
   onCancel,
-}: VehicleFormProps) {
-  const { addVehicle, updateVehicle, getVehicleById } = useStore();
+  onDelete,
+}: VehicleFormProps & { onDelete?: () => void }) {
+  const { addVehicle, updateVehicle, getVehicleById, deleteVehicle } = useStore();
   const isEdit = !!vehicleId;
+  const originalDriverRef = useRef({ name: "", phone: "" });
 
   // 表单状态
   const [formData, setFormData] = useState({
@@ -37,13 +39,16 @@ export default function VehicleForm({
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showDriverChangeConfirm, setShowDriverChangeConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [pendingFormData, setPendingFormData] = useState<typeof formData | null>(null);
 
   // 编辑模式：加载现有数据
   useEffect(() => {
     if (isEdit && vehicleId) {
       const vehicle = getVehicleById(vehicleId);
       if (vehicle) {
-        setFormData({
+        const data = {
           plateNumber: vehicle.plateNumber,
           model: vehicle.model,
           initialMileage: vehicle.initialMileage,
@@ -52,7 +57,12 @@ export default function VehicleForm({
           driverPhone: vehicle.driverPhone,
           purchaseDate: formatDate(vehicle.purchaseDate),
           notes: vehicle.notes || "",
-        });
+        };
+        setFormData(data);
+        originalDriverRef.current = {
+          name: vehicle.driverName,
+          phone: vehicle.driverPhone,
+        };
       }
     }
   }, [isEdit, vehicleId, getVehicleById]);
@@ -109,28 +119,178 @@ export default function VehicleForm({
     return Object.keys(newErrors).length === 0;
   };
 
+  // 检查司机是否变更
+  const hasDriverChanged = () => {
+    if (!isEdit) return false;
+    return (
+      formData.driverName !== originalDriverRef.current.name ||
+      formData.driverPhone !== originalDriverRef.current.phone
+    );
+  };
+
+  // 执行保存
+  const doSave = (data: typeof formData) => {
+    if (isEdit && vehicleId) {
+      updateVehicle(vehicleId, {
+        ...data,
+        purchaseDate: new Date(data.purchaseDate).toISOString(),
+      });
+    } else {
+      addVehicle({
+        ...data,
+        purchaseDate: new Date(data.purchaseDate).toISOString(),
+      });
+    }
+    onSuccess?.();
+  };
+
   // 提交表单
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
 
-    if (isEdit && vehicleId) {
-      updateVehicle(vehicleId, {
-        ...formData,
-        purchaseDate: new Date(formData.purchaseDate).toISOString(),
-      });
+    if (hasDriverChanged()) {
+      setPendingFormData({ ...formData });
+      setShowDriverChangeConfirm(true);
     } else {
-      addVehicle({
-        ...formData,
-        purchaseDate: new Date(formData.purchaseDate).toISOString(),
-      });
+      doSave(formData);
     }
+  };
 
-    onSuccess?.();
+  // 确认司机变更并保存
+  const confirmDriverChange = () => {
+    if (pendingFormData) {
+      doSave(pendingFormData);
+    }
+    setShowDriverChangeConfirm(false);
+    setPendingFormData(null);
+  };
+
+  // 取消司机变更确认
+  const cancelDriverChange = () => {
+    setShowDriverChangeConfirm(false);
+    setPendingFormData(null);
+  };
+
+  // 删除车辆
+  const handleDelete = () => {
+    setShowDeleteConfirm(true);
+  };
+
+  // 确认删除
+  const confirmDelete = () => {
+    if (vehicleId) {
+      deleteVehicle(vehicleId);
+      onDelete?.();
+      onSuccess?.();
+    }
+    setShowDeleteConfirm(false);
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <>
+      {showDriverChangeConfirm && pendingFormData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={cancelDriverChange}
+          />
+          <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6 animate-scale-in">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center">
+                <Users className="w-6 h-6 text-orange-500" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-deep-700">确认司机变更</h3>
+                <p className="text-sm text-deep-400 mt-0.5">系统将记录此次变更</p>
+              </div>
+            </div>
+            <div className="bg-deep-50 rounded-lg p-4 mb-6 space-y-3">
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-deep-400 w-16 shrink-0">原司机</span>
+                <span className="text-sm text-deep-600 font-medium">
+                  {originalDriverRef.current.name}
+                </span>
+                <span className="text-xs text-deep-400">
+                  {originalDriverRef.current.phone}
+                </span>
+              </div>
+              <div className="w-px h-px flex-1 border-t border-dashed border-deep-200 ml-16" />
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-deep-400 w-16 shrink-0">新司机</span>
+                <span className="text-sm text-orange-600 font-medium">
+                  {pendingFormData.driverName}
+                </span>
+                <span className="text-xs text-deep-400">
+                  {pendingFormData.driverPhone}
+                </span>
+              </div>
+            </div>
+            <p className="text-sm text-deep-500 mb-6">
+              确认变更司机？系统将自动记录此次变更历史，可在车辆档案中查看。
+            </p>
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={cancelDriverChange}
+                className="btn-secondary"
+                type="button"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmDriverChange}
+                className="btn-primary"
+                type="button"
+              >
+                <Save className="w-4 h-4" />
+                确认变更
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowDeleteConfirm(false)}
+          />
+          <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4 p-6 animate-scale-in">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-full bg-alert-red/10 flex items-center justify-center">
+                <AlertTriangle className="w-6 h-6 text-alert-red" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-deep-700">确认删除车辆</h3>
+                <p className="text-sm text-deep-400 mt-0.5">{formData.plateNumber}</p>
+              </div>
+            </div>
+            <p className="text-sm text-deep-500 mb-6">
+              删除后将同时清除该车辆的所有加油记录、维修记录和司机变更历史，此操作不可恢复。
+            </p>
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="btn-secondary"
+                type="button"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="btn-danger"
+                type="button"
+              >
+                <Trash2 className="w-4 h-4" />
+                确认删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-5">
       {/* 车牌号 + 车型 */}
       <div className="grid grid-cols-2 gap-4">
         <div>
@@ -280,22 +440,35 @@ export default function VehicleForm({
       </div>
 
       {/* 操作按钮 */}
-      <div className="flex items-center justify-end gap-3 pt-2">
-        {onCancel && (
+      <div className="flex items-center justify-between pt-2">
+        {isEdit && (
           <button
             type="button"
-            onClick={onCancel}
-            className="btn-secondary"
+            onClick={handleDelete}
+            className="btn-danger"
           >
-            <X className="w-4 h-4" />
-            取消
+            <Trash2 className="w-4 h-4" />
+            删除车辆
           </button>
         )}
-        <button type="submit" className="btn-primary">
-          <Save className="w-4 h-4" />
-          {isEdit ? "保存修改" : "新增车辆"}
-        </button>
+        <div className="flex items-center gap-3 ml-auto">
+          {onCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="btn-secondary"
+            >
+              <X className="w-4 h-4" />
+              取消
+            </button>
+          )}
+          <button type="submit" className="btn-primary">
+            <Save className="w-4 h-4" />
+            {isEdit ? "保存修改" : "新增车辆"}
+          </button>
+        </div>
       </div>
     </form>
+    </>
   );
 }

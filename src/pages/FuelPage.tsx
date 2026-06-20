@@ -6,6 +6,7 @@ import {
   ListPlus,
   ArrowLeft,
   Gauge,
+  History,
 } from "lucide-react";
 import { useStore } from "@/store";
 import { isSameMonth } from "@/utils/calculations";
@@ -22,14 +23,15 @@ import FuelList from "@/components/fuel/FuelList";
  * 加油管理页面
  * - 路由 /fuel：加油管理主页（统计 + 列表）
  * - 路由 /fuel/new：新增加油表单
+ * - 路由 /fuel/backfill：历史补录表单
  */
 export default function FuelPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { fuelRecords, filters } = useStore();
 
-  // 判断当前是否为新增页面
   const isNewPage = location.pathname === "/fuel/new";
+  const isBackfillPage = location.pathname === "/fuel/backfill";
 
   // 本月统计数据
   const monthlyStats = useMemo(() => {
@@ -58,11 +60,9 @@ export default function FuelPage() {
     navigate("/fuel");
   };
 
-  // 新增表单页面
-  if (isNewPage) {
+  if (isNewPage || isBackfillPage) {
     return (
       <div className="space-y-6">
-        {/* 页面头部：返回按钮 + 标题 */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
@@ -72,17 +72,24 @@ export default function FuelPage() {
               <ArrowLeft className="w-5 h-5" />
             </button>
             <div>
-              <h1 className="text-xl font-bold text-deep-700">新增加油记录</h1>
+              <h1 className="text-xl font-bold text-deep-700">
+                {isBackfillPage ? "历史加油补录" : "新增加油记录"}
+              </h1>
               <p className="text-sm text-deep-400 mt-0.5">
-                填写加油信息，系统自动计算油耗
+                {isBackfillPage
+                  ? "补录历史加油记录，不会更新车辆当前里程"
+                  : "填写加油信息，系统自动计算油耗"}
               </p>
             </div>
           </div>
         </div>
 
-        {/* 表单 */}
         <div className="card p-6 rounded-[12px]">
-          <FuelForm onSuccess={handleFormSuccess} onCancel={handleBack} />
+          <FuelForm
+            mode={isBackfillPage ? "backfill" : "normal"}
+            onSuccess={handleFormSuccess}
+            onCancel={handleBack}
+          />
         </div>
       </div>
     );
@@ -99,13 +106,22 @@ export default function FuelPage() {
             {monthLabel(filters.month)} 加油记录统计
           </p>
         </div>
-        <button
-          onClick={() => navigate("/fuel/new")}
-          className="btn-primary"
-        >
-          <ListPlus className="w-4 h-4" />
-          新增加油
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate("/fuel/backfill")}
+            className="btn-secondary"
+          >
+            <History className="w-4 h-4" />
+            历史补录
+          </button>
+          <button
+            onClick={() => navigate("/fuel/new")}
+            className="btn-primary"
+          >
+            <ListPlus className="w-4 h-4" />
+            新增加油
+          </button>
+        </div>
       </div>
 
       {/* 统计卡片 */}

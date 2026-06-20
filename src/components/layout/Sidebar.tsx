@@ -44,6 +44,11 @@ const navItems = [
     label: "保养提醒",
     icon: Bell,
   },
+  {
+    path: "/settings",
+    label: "系统设置",
+    icon: Settings,
+  },
 ];
 
 // 侧边栏组件属性

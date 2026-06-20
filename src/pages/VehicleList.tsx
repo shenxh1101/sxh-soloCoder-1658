@@ -12,13 +12,25 @@ import EmptyState from "@/components/common/EmptyState";
  * - 支持按车牌号/司机名搜索过滤
  * - 提供新增车辆入口
  * - 路由 /vehicles/new 显示新增表单
+ * - 路由 /vehicles/:id/edit 显示编辑表单
  */
 export default function VehicleList() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { vehicles } = useStore();
+  const { vehicles, getVehicleById } = useStore();
 
-  const isNewPage = location.pathname === "/vehicles/new";
+  const pathMatch = useMemo(() => {
+    const path = location.pathname;
+    const newMatch = path === "/vehicles/new";
+    const editMatch = path.match(/^\/vehicles\/([^/]+)\/edit$/);
+    return {
+      isNewPage: newMatch,
+      isEditPage: !!editMatch,
+      editVehicleId: editMatch ? editMatch[1] : null,
+    };
+  }, [location.pathname]);
+
+  const { isNewPage, isEditPage, editVehicleId } = pathMatch;
 
   const [keyword, setKeyword] = useState("");
 
@@ -60,8 +72,48 @@ export default function VehicleList() {
           </div>
         </div>
         <div className="card p-6 rounded-[12px] max-w-3xl">
-          <VehicleForm onSuccess={handleFormSuccess} />
+          <VehicleForm onSuccess={handleFormSuccess} onCancel={handleBack} />
         </div>
+      </div>
+    );
+  }
+
+  if (isEditPage && editVehicleId) {
+    const vehicle = getVehicleById(editVehicleId);
+    return (
+      <div className="space-y-6 animate-fade-in">
+        <div className="page-header">
+          <div className="flex items-center gap-3">
+            <button onClick={handleBack} className="btn-secondary">
+              <ArrowLeft className="w-4 h-4" />
+              返回列表
+            </button>
+            <div>
+              <h1 className="page-title">编辑车辆档案</h1>
+              <p className="text-deep-400 mt-1 text-sm">
+                {vehicle ? `修改 ${vehicle.plateNumber} 的车辆信息` : "车辆不存在或已被删除"}
+              </p>
+            </div>
+          </div>
+        </div>
+        {vehicle ? (
+          <div className="card p-6 rounded-[12px] max-w-3xl">
+            <VehicleForm
+              vehicleId={editVehicleId}
+              onSuccess={handleFormSuccess}
+              onCancel={handleBack}
+              onDelete={handleBack}
+            />
+          </div>
+        ) : (
+          <div className="card p-12 rounded-[12px] text-center">
+            <Package className="w-16 h-16 mx-auto mb-4 text-deep-200" />
+            <p className="text-deep-400 mb-4">车辆不存在或已被删除</p>
+            <button onClick={handleBack} className="btn-primary">
+              返回列表
+            </button>
+          </div>
+        )}
       </div>
     );
   }

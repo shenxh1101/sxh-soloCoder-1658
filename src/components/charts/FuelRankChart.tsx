@@ -99,7 +99,7 @@ const RankLabel = ({ x = 0, y = 0, height = 0, value, index = 0, data }: RankLab
 };
 
 export default function FuelRankChart({ data }: FuelRankChartProps) {
-  const sortedData = [...data].sort((a, b) => b.avgConsumption - a.avgConsumption);
+  const sortedData = [...data].sort((a, b) => a.avgConsumption - b.avgConsumption);
 
   const getBarColor = (rank: number) => {
     if (rank === 1) return '#2ECC71';

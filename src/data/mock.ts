@@ -120,6 +120,7 @@ function buildFuelRecords(): FuelRecord[] {
           fuelConsumption: consump,
           gasStation: gasStations[Math.floor(Math.random() * gasStations.length)],
           fuelDate: monthsAgo(m, Math.min(day, 28)),
+          source: "normal",
           notes: "",
           createdAt: monthsAgo(m, Math.min(day, 28)),
         });

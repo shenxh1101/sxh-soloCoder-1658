@@ -9,6 +9,7 @@ interface FuelPreviewProps {
   vehicleId: string;
   fuelAmount: number;
   currentMileage: number;
+  fuelDate?: string;
 }
 
 /**
@@ -20,6 +21,7 @@ export default function FuelPreview({
   vehicleId,
   fuelAmount,
   currentMileage,
+  fuelDate,
 }: FuelPreviewProps) {
   const { fuelRecords, getVehicleById } = useStore();
 
@@ -39,7 +41,7 @@ export default function FuelPreview({
     }
 
     // 查找上次加油记录
-    const lastRecord = getLastFuelRecordByVehicle(fuelRecords, vehicleId);
+    const lastRecord = getLastFuelRecordByVehicle(fuelRecords, vehicleId, fuelDate);
     const baseMileage = lastRecord?.currentMileage ?? vehicle?.initialMileage;
 
     const isFirstFuel = !lastRecord;
@@ -71,7 +73,7 @@ export default function FuelPreview({
       consumption,
       noVehicle: false,
     };
-  }, [vehicleId, fuelAmount, currentMileage, fuelRecords, vehicle]);
+  }, [vehicleId, fuelAmount, currentMileage, fuelDate, fuelRecords, vehicle]);
 
   // 未选择车辆
   if (preview.noVehicle) {
