@@ -13,6 +13,8 @@ import {
   X,
   Check,
   AlertTriangle,
+  Shield,
+  Activity,
 } from "lucide-react";
 import {
   LineChart,
@@ -61,9 +63,11 @@ export default function ReportsPage() {
     getVehicleCostTrend,
     getVehicleAnomalyStats,
     getVehicleAnomalyTrend,
+    getVehicleRiskScores,
   } = useStore();
 
   const [activeTab, setActiveTab] = useState<"monthly" | "comparison">("monthly");
+  const [riskPeriod, setRiskPeriod] = useState<3 | 6>(3);
 
   const VEHICLE_COLORS = ["#f97316", "#3b82f6", "#22c55e"];
 
@@ -136,6 +140,32 @@ export default function ReportsPage() {
     // 按合计降序排序
     return data.sort((a, b) => b.totalCost - a.totalCost);
   }, [vehicles, fuelRecords, maintenanceRecords, currentMonth]);
+
+  const riskScores = useMemo(
+    () => getVehicleRiskScores(riskPeriod),
+    [getVehicleRiskScores, riskPeriod]
+  );
+
+  const riskOverview = useMemo(() => {
+    const high = riskScores.filter((r) => r.riskScore >= 60).length;
+    const medium = riskScores.filter((r) => r.riskScore >= 30 && r.riskScore < 60).length;
+    const low = riskScores.filter((r) => r.riskScore < 30).length;
+    return { high, medium, low };
+  }, [riskScores]);
+
+  const riskTrendChartData = useMemo(() => {
+    const monthList = lastNMonths(riskPeriod);
+    return monthList.map((month) => {
+      const row: Record<string, string | number> = { month };
+      riskScores.slice(0, 6).forEach((rs) => {
+        const trendItem = rs.trendData.find((t) => t.month === month);
+        row[`${rs.vehicleId}_score`] = trendItem ? trendItem.score : 0;
+      });
+      return row;
+    });
+  }, [riskScores, riskPeriod]);
+
+  const RISK_CHART_COLORS = ["#f97316", "#3b82f6", "#22c55e", "#a855f7", "#ec4899", "#14b8a6"];
 
   // 车辆对比数据
   const comparisonData = useMemo(() => {
@@ -702,6 +732,363 @@ export default function ReportsPage() {
                 </tbody>
               </table>
             </div>
+          </div>
+
+          {/* 运营风险看板 */}
+          <div className="card rounded-[12px] overflow-hidden">
+            <div className="p-5 border-b border-deep-50/80">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 rounded-xl bg-red-50 flex items-center justify-center">
+                    <Shield className="w-4.5 h-4.5 text-red-500" />
+                  </div>
+                  <div>
+                    <h3 className="section-title !mb-0">运营风险看板</h3>
+                    <p className="text-xs text-deep-400 mt-0.5">
+                      基于油耗波动、维修超期、异常处理等维度的综合风险评估
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 p-1 bg-deep-50/60 rounded-lg">
+                  <button
+                    onClick={() => setRiskPeriod(3)}
+                    className={cn(
+                      "px-3.5 py-1.5 rounded-md text-xs font-medium transition-all duration-200",
+                      riskPeriod === 3
+                        ? "bg-white text-deep-700 shadow-sm"
+                        : "text-deep-400 hover:text-deep-600"
+                    )}
+                  >
+                    近3个月
+                  </button>
+                  <button
+                    onClick={() => setRiskPeriod(6)}
+                    className={cn(
+                      "px-3.5 py-1.5 rounded-md text-xs font-medium transition-all duration-200",
+                      riskPeriod === 6
+                        ? "bg-white text-deep-700 shadow-sm"
+                        : "text-deep-400 hover:text-deep-600"
+                    )}
+                  >
+                    近6个月
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* 风险评分概览 */}
+            <div className="p-5 border-b border-deep-50/80">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 rounded-xl bg-red-50/60 border border-red-100">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-red-500/15 flex items-center justify-center">
+                      <Shield className="w-5 h-5 text-red-500" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-red-600 num">{riskOverview.high}</p>
+                      <p className="text-xs text-red-400 font-medium">高风险车辆</p>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-red-300 mt-2 ml-[52px]">风险评分 ≥ 60</p>
+                </div>
+                <div className="p-4 rounded-xl bg-orange-50/60 border border-orange-100">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-orange-500/15 flex items-center justify-center">
+                      <Activity className="w-5 h-5 text-orange-500" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-orange-600 num">{riskOverview.medium}</p>
+                      <p className="text-xs text-orange-400 font-medium">中风险车辆</p>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-orange-300 mt-2 ml-[52px]">风险评分 30~60</p>
+                </div>
+                <div className="p-4 rounded-xl bg-green-50/60 border border-green-100">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-green-500/15 flex items-center justify-center">
+                      <Check className="w-5 h-5 text-green-500" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-green-600 num">{riskOverview.low}</p>
+                      <p className="text-xs text-green-400 font-medium">低风险车辆</p>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-green-300 mt-2 ml-[52px]">风险评分 &lt; 30</p>
+                </div>
+              </div>
+            </div>
+
+            {/* 车辆风险表格 */}
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-deep-50/40">
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-deep-500 uppercase tracking-wider whitespace-nowrap">
+                      <span className="flex items-center gap-1">
+                        <Truck className="w-3.5 h-3.5" />
+                        车牌
+                      </span>
+                    </th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-deep-500 uppercase tracking-wider whitespace-nowrap">
+                      <span className="flex items-center gap-1">
+                        <User className="w-3.5 h-3.5" />
+                        司机
+                      </span>
+                    </th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-deep-500 uppercase tracking-wider whitespace-nowrap">
+                      <span className="flex items-center gap-1">
+                        <Shield className="w-3.5 h-3.5" />
+                        风险评分
+                      </span>
+                    </th>
+                    <th className="px-5 py-3 text-center text-xs font-semibold text-deep-500 uppercase tracking-wider whitespace-nowrap">
+                      风险等级
+                    </th>
+                    <th className="px-5 py-3 text-right text-xs font-semibold text-deep-500 uppercase tracking-wider whitespace-nowrap">
+                      油耗波动%
+                    </th>
+                    <th className="px-5 py-3 text-center text-xs font-semibold text-deep-500 uppercase tracking-wider whitespace-nowrap">
+                      超期维修
+                    </th>
+                    <th className="px-5 py-3 text-center text-xs font-semibold text-deep-500 uppercase tracking-wider whitespace-nowrap">
+                      保养临近
+                    </th>
+                    <th className="px-5 py-3 text-center text-xs font-semibold text-deep-500 uppercase tracking-wider whitespace-nowrap">
+                      未处理异常
+                    </th>
+                    <th className="px-5 py-3 text-right text-xs font-semibold text-deep-500 uppercase tracking-wider whitespace-nowrap">
+                      已处理率
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-deep-50">
+                  {riskScores.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="px-5 py-16 text-center">
+                        <div className="flex flex-col items-center gap-3">
+                          <div className="w-16 h-16 rounded-2xl bg-deep-50 flex items-center justify-center">
+                            <Shield className="w-8 h-8 text-deep-300" />
+                          </div>
+                          <p className="text-deep-500 font-medium">暂无风险数据</p>
+                          <p className="text-sm text-deep-400">当前时段内无车辆运营数据</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    riskScores.map((r, index) => {
+                      const scoreColor = r.riskScore >= 60 ? "bg-red-500" : r.riskScore >= 30 ? "bg-orange-500" : "bg-green-500";
+                      const levelBadge = r.riskLevel === "high"
+                        ? "bg-red-50 text-red-600 border-red-100"
+                        : r.riskLevel === "medium"
+                        ? "bg-orange-50 text-orange-600 border-orange-100"
+                        : "bg-green-50 text-green-600 border-green-100";
+                      const levelText = r.riskLevel === "high" ? "高" : r.riskLevel === "medium" ? "中" : "低";
+                      return (
+                        <tr
+                          key={r.vehicleId}
+                          className={cn(
+                            "hover:bg-deep-50/40 transition-colors",
+                            index % 2 === 1 && "bg-deep-50/20"
+                          )}
+                        >
+                          <td className="px-5 py-4 whitespace-nowrap">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-deep-50 text-deep-700 text-sm font-medium tracking-wider">
+                              {r.plateNumber}
+                            </span>
+                          </td>
+                          <td className="px-5 py-4 whitespace-nowrap">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-orange-400 to-orange-500 flex items-center justify-center text-white text-xs font-semibold">
+                                {r.driverName?.charAt(0) || "司"}
+                              </div>
+                              <span className="text-sm font-medium text-deep-700">
+                                {r.driverName || "--"}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-5 py-4 whitespace-nowrap">
+                            <div className="flex items-center gap-3">
+                              <div className="flex-1 min-w-[80px] h-2 bg-deep-100 rounded-full overflow-hidden">
+                                <div
+                                  className={cn("h-full rounded-full transition-all duration-500", scoreColor)}
+                                  style={{ width: `${Math.min(r.riskScore, 100)}%` }}
+                                />
+                              </div>
+                              <span className="num text-sm font-semibold text-deep-700 w-8 text-right">{r.riskScore}</span>
+                            </div>
+                          </td>
+                          <td className="px-5 py-4 text-center whitespace-nowrap">
+                            <span className={cn("inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold border", levelBadge)}>
+                              {levelText}
+                            </span>
+                          </td>
+                          <td className="px-5 py-4 text-right whitespace-nowrap">
+                            <span className={cn(
+                              "num text-sm font-semibold",
+                              r.fuelFluctuation > 20 ? "text-red-600" : r.fuelFluctuation > 10 ? "text-orange-600" : "text-green-600"
+                            )}>
+                              {r.fuelFluctuation}%
+                            </span>
+                          </td>
+                          <td className="px-5 py-4 text-center whitespace-nowrap">
+                            {r.overdueMaintenanceCount > 0 ? (
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-50 text-red-600 text-xs font-bold">
+                                {r.overdueMaintenanceCount}
+                              </span>
+                            ) : (
+                              <span className="text-deep-300 text-sm">0</span>
+                            )}
+                          </td>
+                          <td className="px-5 py-4 text-center whitespace-nowrap">
+                            {r.upcomingMaintenanceCount > 0 ? (
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-orange-50 text-orange-600 text-xs font-bold">
+                                {r.upcomingMaintenanceCount}
+                              </span>
+                            ) : (
+                              <span className="text-deep-300 text-sm">0</span>
+                            )}
+                          </td>
+                          <td className="px-5 py-4 text-center whitespace-nowrap">
+                            {r.unresolvedAnomalyCount > 0 ? (
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-50 text-red-600 text-xs font-bold">
+                                {r.unresolvedAnomalyCount}
+                              </span>
+                            ) : (
+                              <span className="text-deep-300 text-sm">0</span>
+                            )}
+                          </td>
+                          <td className="px-5 py-4 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-2">
+                              <div className="w-12 h-1.5 bg-deep-100 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full rounded-full transition-all duration-500"
+                                  style={{
+                                    width: `${r.resolvedRate * 100}%`,
+                                    backgroundColor: r.resolvedRate >= 0.8 ? '#22c55e' : r.resolvedRate >= 0.5 ? '#f97316' : '#ef4444',
+                                  }}
+                                />
+                              </div>
+                              <span className={cn(
+                                "num text-xs font-semibold",
+                                r.resolvedRate >= 0.8 ? "text-green-600" : r.resolvedRate >= 0.5 ? "text-orange-600" : "text-red-600"
+                              )}>
+                                {(r.resolvedRate * 100).toFixed(0)}%
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* 风险趋势折线图 */}
+            {riskScores.length > 0 && (
+              <div className="p-5 border-t border-deep-50/80">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center">
+                    <Activity className="w-4 h-4 text-purple-500" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold text-deep-700">风险评分趋势</h4>
+                    <p className="text-xs text-deep-400">
+                      近{riskPeriod}个月各车辆风险评分变化
+                    </p>
+                  </div>
+                </div>
+                <div className="w-full h-[320px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={riskTrendChartData}
+                      margin={{ top: 20, right: 24, left: 0, bottom: 0 }}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="#E8EEF7"
+                        vertical={false}
+                      />
+                      <XAxis
+                        dataKey="month"
+                        tick={{ fill: '#A3B9DD', fontSize: 12 }}
+                        tickLine={false}
+                        axisLine={{ stroke: '#E8EEF7' }}
+                        dy={8}
+                        tickFormatter={(value) => monthLabel(value).replace("年", "/").replace("月", "")}
+                      />
+                      <YAxis
+                        tick={{ fill: '#A3B9DD', fontSize: 12 }}
+                        tickLine={false}
+                        axisLine={false}
+                        domain={[0, 100]}
+                        width={36}
+                      />
+                      <Tooltip
+                        content={({ active, payload, label }) => {
+                          if (active && payload && payload.length) {
+                            return (
+                              <div className="bg-white rounded-xl shadow-hover border border-deep-50/60 px-4 py-3 min-w-[180px]">
+                                <p className="text-xs text-deep-400 mb-2 font-medium">{monthLabel(label || "")}</p>
+                                {payload.map((entry, index) => (
+                                  <div key={index} className="flex items-center justify-between gap-4 mb-1 last:mb-0">
+                                    <div className="flex items-center gap-1.5">
+                                      <span
+                                        className="w-2 h-2 rounded-full"
+                                        style={{ backgroundColor: entry.color }}
+                                      />
+                                      <span className="text-xs text-deep-500">{entry.name}</span>
+                                    </div>
+                                    <span className="text-xs font-mono font-semibold text-deep-700 tabular-nums">
+                                      {entry.value}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          }
+                          return null;
+                        }}
+                        cursor={{ fill: '#F5F7FA', opacity: 0.5 }}
+                      />
+                      <Legend
+                        content={({ payload }) => {
+                          if (!payload) return null;
+                          return (
+                            <div className="flex items-center justify-center gap-5 pt-2 flex-wrap">
+                              {payload.map((entry, index) => (
+                                <div key={index} className="flex items-center gap-1.5">
+                                  <span
+                                    className="w-3 h-3 rounded-full"
+                                    style={{ backgroundColor: entry.color }}
+                                  />
+                                  <span className="text-xs text-deep-500">{entry.value}</span>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        }}
+                      />
+                      {riskScores.slice(0, 6).map((rs, index) => {
+                        const color = RISK_CHART_COLORS[index];
+                        return (
+                          <Line
+                            key={`${rs.vehicleId}_risk`}
+                            type="monotone"
+                            dataKey={`${rs.vehicleId}_score`}
+                            name={rs.plateNumber}
+                            stroke={color}
+                            strokeWidth={2.5}
+                            dot={{ fill: '#FFFFFF', stroke: color, strokeWidth: 2, r: 4 }}
+                            activeDot={{ r: 6, stroke: color, strokeWidth: 2, fill: '#FFFFFF' }}
+                          />
+                        );
+                      })}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}

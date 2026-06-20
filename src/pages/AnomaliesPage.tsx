@@ -19,7 +19,16 @@ import {
 } from "lucide-react";
 import { useStore } from "@/store";
 import type { AnomalyRecord, AnomalyType, AnomalyStatus } from "@/types";
-import { formatDate, formatDateTime } from "@/utils/formatters";
+import {
+  formatDate,
+  formatDateTime,
+  formatLiters,
+  formatCurrency,
+  formatKm,
+  formatConsumption,
+  maintenanceTypeLabel,
+  maintenanceStatusLabel,
+} from "@/utils/formatters";
 import { cn } from "@/lib/utils";
 import KpiCard from "@/components/common/KpiCard";
 import Badge from "@/components/common/Badge";
@@ -77,6 +86,8 @@ export default function AnomaliesPage() {
   const {
     anomalyRecords,
     vehicles,
+    fuelRecords,
+    maintenanceRecords,
     detectAnomalies,
     getAnomalies,
     handleAnomaly,
@@ -91,6 +102,9 @@ export default function AnomaliesPage() {
   const [selectedAnomaly, setSelectedAnomaly] = useState<AnomalyRecord | null>(null);
   const [handleNote, setHandleNote] = useState("");
   const [isDetecting, setIsDetecting] = useState(false);
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [taskOperator, setTaskOperator] = useState("系统管理员");
+  const [taskNote, setTaskNote] = useState("");
 
   useEffect(() => {
     handleDetectAnomalies();
@@ -544,10 +558,17 @@ export default function AnomaliesPage() {
                   </div>
                 )}
 
-              {selectedAnomaly.relatedRecordId && (
+              {selectedAnomaly.relatedRecordId && (() => {
+                const relatedFuel = selectedAnomaly.relatedRecordType === "fuel"
+                  ? fuelRecords.find((r) => r.id === selectedAnomaly.relatedRecordId)
+                  : null;
+                const relatedMaintenance = selectedAnomaly.relatedRecordType === "maintenance"
+                  ? maintenanceRecords.find((r) => r.id === selectedAnomaly.relatedRecordId)
+                  : null;
+                return (
                 <div className="p-4 rounded-xl bg-orange-50/60">
                   <p className="text-xs text-deep-500 mb-2">关联记录</p>
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       {selectedAnomaly.relatedRecordType === "fuel" ? (
                         <Fuel className="w-4 h-4 text-fuel-500" />
@@ -568,8 +589,53 @@ export default function AnomaliesPage() {
                       <ArrowRight className="w-4 h-4" />
                     </button>
                   </div>
+                  {relatedFuel && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="px-3 py-2 rounded-lg bg-white/60">
+                        <p className="text-xs text-deep-400">加油日期</p>
+                        <p className="text-sm font-medium text-deep-700">{formatDate(relatedFuel.fuelDate)}</p>
+                      </div>
+                      <div className="px-3 py-2 rounded-lg bg-white/60">
+                        <p className="text-xs text-deep-400">加油量</p>
+                        <p className="text-sm font-medium text-deep-700">{formatLiters(relatedFuel.fuelAmount)}</p>
+                      </div>
+                      <div className="px-3 py-2 rounded-lg bg-white/60">
+                        <p className="text-xs text-deep-400">金额</p>
+                        <p className="text-sm font-medium text-deep-700">{formatCurrency(relatedFuel.fuelCost)}</p>
+                      </div>
+                      <div className="px-3 py-2 rounded-lg bg-white/60">
+                        <p className="text-xs text-deep-400">里程</p>
+                        <p className="text-sm font-medium text-deep-700">{formatKm(relatedFuel.currentMileage)}</p>
+                      </div>
+                      <div className="px-3 py-2 rounded-lg bg-white/60 col-span-2">
+                        <p className="text-xs text-deep-400">油耗</p>
+                        <p className="text-sm font-medium text-deep-700">{formatConsumption(relatedFuel.fuelConsumption)}</p>
+                      </div>
+                    </div>
+                  )}
+                  {relatedMaintenance && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="px-3 py-2 rounded-lg bg-white/60">
+                        <p className="text-xs text-deep-400">维修类型</p>
+                        <p className="text-sm font-medium text-deep-700">{maintenanceTypeLabel(relatedMaintenance.type)}</p>
+                      </div>
+                      <div className="px-3 py-2 rounded-lg bg-white/60">
+                        <p className="text-xs text-deep-400">维修厂</p>
+                        <p className="text-sm font-medium text-deep-700">{relatedMaintenance.workshop}</p>
+                      </div>
+                      <div className="px-3 py-2 rounded-lg bg-white/60">
+                        <p className="text-xs text-deep-400">状态</p>
+                        <p className="text-sm font-medium text-deep-700">{maintenanceStatusLabel(relatedMaintenance.status)}</p>
+                      </div>
+                      <div className="px-3 py-2 rounded-lg bg-white/60">
+                        <p className="text-xs text-deep-400">费用</p>
+                        <p className="text-sm font-medium text-deep-700">{formatCurrency(relatedMaintenance.cost)}</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
+                );
+              })()}
 
               {selectedAnomaly.handledAt && (
                 <div className="p-4 rounded-xl bg-fuel-50/60">
@@ -631,6 +697,19 @@ export default function AnomaliesPage() {
                 )}
                 {selectedAnomaly.status !== "resolved" && (
                   <button
+                    onClick={() => {
+                      setTaskOperator("系统管理员");
+                      setTaskNote("");
+                      setShowTaskModal(true);
+                    }}
+                    className="btn-secondary"
+                  >
+                    <Wrench className="w-4 h-4" />
+                    发起处理任务
+                  </button>
+                )}
+                {selectedAnomaly.status !== "resolved" && (
+                  <button
                     onClick={handleMarkResolved}
                     className="btn-primary"
                     disabled={!handleNote.trim()}
@@ -639,6 +718,75 @@ export default function AnomaliesPage() {
                     标记已解决
                   </button>
                 )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTaskModal && selectedAnomaly && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-deep-900/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md animate-slide-up">
+            <div className="flex items-center justify-between p-5 border-b border-deep-50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center">
+                  <Wrench className="w-5 h-5 text-orange-500" />
+                </div>
+                <h3 className="text-lg font-semibold text-deep-700">发起处理任务</h3>
+              </div>
+              <button
+                onClick={() => setShowTaskModal(false)}
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-deep-400 hover:text-deep-600 hover:bg-deep-50 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="label">处理人</label>
+                <input
+                  type="text"
+                  value={taskOperator}
+                  onChange={(e) => setTaskOperator(e.target.value)}
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label">处理备注 <span className="text-alert-red">*</span></label>
+                <textarea
+                  value={taskNote}
+                  onChange={(e) => setTaskNote(e.target.value)}
+                  placeholder="请填写处理备注..."
+                  rows={4}
+                  className="input resize-none"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  onClick={() => setShowTaskModal(false)}
+                  className="btn-secondary"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => {
+                    if (!taskNote.trim()) {
+                      alert("请填写处理备注");
+                      return;
+                    }
+                    handleAnomaly(selectedAnomaly.id, "handling", taskNote.trim(), taskOperator.trim() || "系统管理员");
+                    setShowTaskModal(false);
+                    handleCloseModal();
+                    if (selectedAnomaly.relatedRecordId) {
+                      handleNavigateToRelated(selectedAnomaly);
+                    }
+                  }}
+                  className="btn-primary"
+                  disabled={!taskNote.trim()}
+                >
+                  <Send className="w-4 h-4" />
+                  确认发起
+                </button>
               </div>
             </div>
           </div>

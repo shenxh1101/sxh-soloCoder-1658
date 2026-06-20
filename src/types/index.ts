@@ -143,7 +143,7 @@ export interface AnomalyRecord {
   threshold?: number;
 }
 
-export type ApprovalAction = "approve" | "reject";
+export type ApprovalAction = "approve" | "reject" | "resubmit";
 
 export interface ApprovalRecord {
   id: string;
@@ -153,6 +153,8 @@ export interface ApprovalRecord {
   operator: string;
   operatorRole: string;
   operatedAt: string;
+  description?: string;
+  workshop?: string;
 }
 
 export interface ImportBatch {
@@ -184,4 +186,35 @@ export interface MaintenanceRecord {
   approvalRecords?: ApprovalRecord[];
   notes?: string;
   createdAt: string;
+}
+
+export interface RiskTimelineEvent {
+  id: string;
+  vehicleId: string;
+  eventType: "anomaly_detected" | "anomaly_handled" | "maintenance_overdue" | "fuel_high" | "maintenance_high_cost";
+  title: string;
+  description: string;
+  occurredAt: string;
+  severity: "low" | "medium" | "high";
+  relatedAnomalyId?: string;
+  relatedRecordId?: string;
+  relatedRecordType?: "fuel" | "maintenance";
+  handler?: string;
+  handleNote?: string;
+}
+
+export interface VehicleRiskScore {
+  vehicleId: string;
+  plateNumber: string;
+  driverName: string;
+  currentMileage: number;
+  riskScore: number;
+  riskLevel: "low" | "medium" | "high";
+  fuelFluctuation: number;
+  overdueMaintenanceCount: number;
+  upcomingMaintenanceCount: number;
+  unresolvedAnomalyCount: number;
+  totalAnomalyCount: number;
+  resolvedRate: number;
+  trendData: Array<{ month: string; score: number }>;
 }

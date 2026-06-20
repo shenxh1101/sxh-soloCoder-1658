@@ -28,6 +28,8 @@ import type {
   AnomalyStatus,
   ApprovalRecord,
   ImportBatch,
+  RiskTimelineEvent,
+  VehicleRiskScore,
 } from "@/types";
 import {
   calcFuelConsumption,
@@ -167,6 +169,8 @@ interface StoreState {
     vehicleId: string,
     months: number
   ) => Array<{ month: string; count: number; resolved: number }>;
+  getRiskTimeline: (vehicleId: string) => RiskTimelineEvent[];
+  getVehicleRiskScores: (months: number) => VehicleRiskScore[];
 }
 
 function genId(): string {
@@ -1416,6 +1420,17 @@ export const useStore = create<StoreState>()(
       },
 
       resubmitMaintenance: (id, updates) => {
+        const resubmitRecord: ApprovalRecord = {
+          id: genId(),
+          maintenanceId: id,
+          action: "resubmit",
+          operator: "司机",
+          operatorRole: "司机",
+          operatedAt: new Date().toISOString(),
+          description: updates?.description,
+          workshop: updates?.workshop,
+        };
+
         set((s) => ({
           maintenanceRecords: s.maintenanceRecords.map((r) =>
             r.id === id && r.status === "rejected"
@@ -1424,6 +1439,7 @@ export const useStore = create<StoreState>()(
                   ...updates,
                   status: "pending_approval",
                   createdAt: new Date().toISOString(),
+                  approvalRecords: [...(r.approvalRecords || []), resubmitRecord],
                 }
               : r
           ),
@@ -1477,8 +1493,42 @@ export const useStore = create<StoreState>()(
             anomalyRecords: s.anomalyRecords.filter(a => !batch.recordIds.includes(a.vehicleId)),
           }));
         } else if (batch.entityType === "fuel") {
+          const fuelRecordsToRemove = get().fuelRecords.filter(r => batch.recordIds.includes(r.id));
+          const vehicleMileageUpdates: Record<string, number> = {};
+
+          fuelRecordsToRemove.forEach((fr) => {
+            const vehicleId = fr.vehicleId;
+            if (!vehicleMileageUpdates[vehicleId]) {
+              const vehicle = get().vehicles.find(v => v.id === vehicleId);
+              if (vehicle) {
+                vehicleMileageUpdates[vehicleId] = vehicle.currentMileage;
+              }
+            }
+          });
+
+          Object.keys(vehicleMileageUpdates).forEach((vehicleId) => {
+            const remainingRecords = get().fuelRecords.filter(
+              r => r.vehicleId === vehicleId && !batch.recordIds.includes(r.id)
+            );
+            const normalRecords = remainingRecords.filter(r => r.source === "normal");
+            if (normalRecords.length > 0) {
+              const maxMileage = Math.max(...normalRecords.map(r => r.currentMileage));
+              vehicleMileageUpdates[vehicleId] = maxMileage;
+            } else {
+              const vehicle = get().vehicles.find(v => v.id === vehicleId);
+              if (vehicle) {
+                vehicleMileageUpdates[vehicleId] = vehicle.initialMileage;
+              }
+            }
+          });
+
           set((s) => ({
             fuelRecords: s.fuelRecords.filter(r => !batch.recordIds.includes(r.id)),
+            vehicles: s.vehicles.map(v =>
+              vehicleMileageUpdates[v.id] !== undefined
+                ? { ...v, currentMileage: vehicleMileageUpdates[v.id] }
+                : v
+            ),
           }));
         } else if (batch.entityType === "maintenance") {
           set((s) => ({
@@ -1530,6 +1580,173 @@ export const useStore = create<StoreState>()(
             resolved: monthAnomalies.filter(a => a.status === "resolved").length,
           };
         });
+      },
+
+      getRiskTimeline: (vehicleId) => {
+        const { anomalyRecords, maintenanceRecords, fuelRecords, vehicles, maintenanceRules } = get();
+        const events: RiskTimelineEvent[] = [];
+
+        anomalyRecords
+          .filter(a => a.vehicleId === vehicleId)
+          .forEach(anomaly => {
+            events.push({
+              id: `anomaly-detect-${anomaly.id}`,
+              vehicleId,
+              eventType: anomaly.type === "fuel_high" ? "fuel_high"
+                : anomaly.type === "maintenance_overdue" ? "maintenance_overdue"
+                : anomaly.type === "maintenance_high_cost" ? "maintenance_high_cost"
+                : "anomaly_detected",
+              title: anomaly.title,
+              description: anomaly.description,
+              occurredAt: anomaly.detectedAt,
+              severity: anomaly.severity,
+              relatedAnomalyId: anomaly.id,
+              relatedRecordId: anomaly.relatedRecordId,
+              relatedRecordType: anomaly.relatedRecordType,
+            });
+
+            if (anomaly.status === "resolved" && anomaly.handledAt) {
+              events.push({
+                id: `anomaly-handle-${anomaly.id}`,
+                vehicleId,
+                eventType: "anomaly_handled",
+                title: `已处理：${anomaly.title}`,
+                description: anomaly.handleNote || "异常已标记为已解决",
+                occurredAt: anomaly.handledAt,
+                severity: "low",
+                relatedAnomalyId: anomaly.id,
+                handler: anomaly.handledBy,
+                handleNote: anomaly.handleNote,
+              });
+            }
+          });
+
+        maintenanceRecords
+          .filter(r => r.vehicleId === vehicleId && r.approvalRecords && r.approvalRecords.length > 0)
+          .forEach(record => {
+            record.approvalRecords!.forEach(approval => {
+              if (approval.action === "resubmit") {
+                events.push({
+                  id: `resubmit-${approval.id}`,
+                  vehicleId,
+                  eventType: "anomaly_detected",
+                  title: "重新提交维修申请",
+                  description: `司机重新提交了维修申请${approval.description ? `，描述：${approval.description}` : ""}`,
+                  occurredAt: approval.operatedAt,
+                  severity: "low",
+                  relatedRecordId: record.id,
+                  relatedRecordType: "maintenance",
+                  handler: approval.operator,
+                });
+              }
+            });
+          });
+
+        return events.sort((a, b) =>
+          new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()
+        );
+      },
+
+      getVehicleRiskScores: (months = 3) => {
+        const { vehicles, fuelRecords, maintenanceRecords, maintenanceRules, anomalyRecords } = get();
+        const monthList = lastNMonths(months);
+
+        return vehicles.map(vehicle => {
+          const vFuel = fuelRecords.filter(r =>
+            r.vehicleId === vehicle.id &&
+            monthList.some(m => r.fuelDate.startsWith(m)) &&
+            r.fuelConsumption !== null
+          );
+
+          const consumptions = vFuel.map(r => r.fuelConsumption!);
+          let fuelFluctuation = 0;
+          if (consumptions.length >= 3) {
+            const avg = consumptions.reduce((s, n) => s + n, 0) / consumptions.length;
+            const variance = consumptions.reduce((s, n) => s + Math.pow(n - avg, 2), 0) / consumptions.length;
+            fuelFluctuation = avg > 0 ? +(Math.sqrt(variance) / avg * 100).toFixed(1) : 0;
+          }
+
+          const overdueMaintenance = maintenanceRecords.filter(r =>
+            r.vehicleId === vehicle.id &&
+            (r.status === "pending_approval" || r.status === "pending") &&
+            monthList.some(m => r.applyDate.startsWith(m))
+          ).length;
+
+          const rule = maintenanceRules.find(r => r.vehicleId === vehicle.id && r.enabled);
+          let upcomingMaintenance = 0;
+          if (rule) {
+            const { remaining } = calcRemainingKm(
+              vehicle.currentMileage,
+              rule.lastMaintenanceKm,
+              rule.intervalKm,
+              rule.warningThreshold
+            );
+            if (remaining < rule.warningThreshold) upcomingMaintenance = 1;
+          }
+
+          const vAnomalies = anomalyRecords.filter(a =>
+            a.vehicleId === vehicle.id &&
+            monthList.some(m => a.detectedAt.startsWith(m))
+          );
+
+          const totalAnomalyCount = vAnomalies.length;
+          const unresolvedAnomalyCount = vAnomalies.filter(a => a.status !== "resolved").length;
+          const resolvedCount = vAnomalies.filter(a => a.status === "resolved").length;
+          const resolvedRate = totalAnomalyCount > 0 ? resolvedCount / totalAnomalyCount : 1;
+
+          let riskScore = 0;
+          riskScore += Math.min(fuelFluctuation, 30) * 0.5;
+          riskScore += overdueMaintenance * 15;
+          riskScore += upcomingMaintenance * 10;
+          riskScore += unresolvedAnomalyCount * 10;
+          riskScore += (1 - resolvedRate) * 15;
+          riskScore = Math.min(Math.round(riskScore), 100);
+
+          const riskLevel: "low" | "medium" | "high" =
+            riskScore >= 60 ? "high" : riskScore >= 30 ? "medium" : "low";
+
+          const trendData = monthList.map(month => {
+            const monthAnomalies = anomalyRecords.filter(a =>
+              a.vehicleId === vehicle.id && a.detectedAt.startsWith(month)
+            );
+            const monthFuel = fuelRecords.filter(r =>
+              r.vehicleId === vehicle.id && r.fuelDate.startsWith(month) && r.fuelConsumption !== null
+            );
+            const monthOverdue = maintenanceRecords.filter(r =>
+              r.vehicleId === vehicle.id &&
+              (r.status === "pending_approval" || r.status === "pending") &&
+              r.applyDate.startsWith(month)
+            ).length;
+
+            let monthScore = 0;
+            monthScore += monthAnomalies.filter(a => a.status !== "resolved").length * 10;
+            monthScore += monthOverdue * 15;
+            if (monthFuel.length >= 2) {
+              const vals = monthFuel.map(r => r.fuelConsumption!);
+              const avg = vals.reduce((s, n) => s + n, 0) / vals.length;
+              const variance = vals.reduce((s, n) => s + Math.pow(n - avg, 2), 0) / vals.length;
+              const cv = avg > 0 ? Math.sqrt(variance) / avg * 100 : 0;
+              monthScore += Math.min(cv, 30) * 0.5;
+            }
+            return { month, score: Math.min(Math.round(monthScore), 100) };
+          });
+
+          return {
+            vehicleId: vehicle.id,
+            plateNumber: vehicle.plateNumber,
+            driverName: vehicle.driverName,
+            currentMileage: vehicle.currentMileage,
+            riskScore,
+            riskLevel,
+            fuelFluctuation,
+            overdueMaintenanceCount: overdueMaintenance,
+            upcomingMaintenanceCount: upcomingMaintenance,
+            unresolvedAnomalyCount,
+            totalAnomalyCount,
+            resolvedRate: +resolvedRate.toFixed(2),
+            trendData,
+          };
+        }).sort((a, b) => b.riskScore - a.riskScore);
       },
     }),
     {

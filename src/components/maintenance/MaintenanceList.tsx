@@ -239,7 +239,7 @@ export default function MaintenanceList({ vehicleId }: MaintenanceListProps) {
       return;
     }
     if (selectedMaintenanceId) {
-      useStore.getState().rejectMaintenance(selectedMaintenanceId, rejectReason.trim());
+      useStore.getState().rejectMaintenanceWithRecord(selectedMaintenanceId, rejectReason.trim());
       handleCloseRejectModal();
     }
   };
@@ -975,7 +975,7 @@ export default function MaintenanceList({ vehicleId }: MaintenanceListProps) {
                         <div
                           className={cn(
                             "absolute left-0 top-1 w-4 h-4 rounded-full border-4 border-white shadow-sm z-10",
-                            record.action === "approve" ? "bg-fuel-500" : "bg-alert-red"
+                            record.action === "approve" ? "bg-fuel-500" : record.action === "reject" ? "bg-alert-red" : "bg-blue-500"
                           )}
                         />
                         <div
@@ -983,7 +983,9 @@ export default function MaintenanceList({ vehicleId }: MaintenanceListProps) {
                             "p-4 rounded-xl border",
                             record.action === "approve"
                               ? "bg-fuel-50/50 border-fuel-100"
-                              : "bg-alert-red/10 border-alert-red/20"
+                              : record.action === "reject"
+                              ? "bg-alert-red/10 border-alert-red/20"
+                              : "bg-blue-50/50 border-blue-100"
                           )}
                         >
                           <div className="flex items-center justify-between mb-2">
@@ -993,15 +995,19 @@ export default function MaintenanceList({ vehicleId }: MaintenanceListProps) {
                                   "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium",
                                   record.action === "approve"
                                     ? "bg-fuel-500 text-white"
-                                    : "bg-alert-red text-white"
+                                    : record.action === "reject"
+                                    ? "bg-alert-red text-white"
+                                    : "bg-blue-500 text-white"
                                 )}
                               >
                                 {record.action === "approve" ? (
                                   <ThumbsUp className="w-3 h-3" />
-                                ) : (
+                                ) : record.action === "reject" ? (
                                   <ThumbsDown className="w-3 h-3" />
+                                ) : (
+                                  <RefreshCw className="w-3 h-3" />
                                 )}
-                                {record.action === "approve" ? "审批通过" : "审批驳回"}
+                                {record.action === "approve" ? "审批通过" : record.action === "reject" ? "审批驳回" : "重新提交"}
                               </span>
                               <span className="text-xs text-deep-500">
                                 {record.operator}
@@ -1016,6 +1022,22 @@ export default function MaintenanceList({ vehicleId }: MaintenanceListProps) {
                             <div className="mt-2 pt-2 border-t border-deep-100">
                               <p className="text-xs text-deep-500 mb-1">驳回原因：</p>
                               <p className="text-sm text-deep-600">{record.reason}</p>
+                            </div>
+                          )}
+                          {record.action === "resubmit" && (record.description || record.workshop) && (
+                            <div className="mt-2 pt-2 border-t border-blue-100">
+                              {record.description && (
+                                <p className="text-sm text-deep-600">
+                                  <span className="text-xs text-deep-500">修改描述：</span>
+                                  {record.description}
+                                </p>
+                              )}
+                              {record.workshop && (
+                                <p className="text-sm text-deep-600 mt-1">
+                                  <span className="text-xs text-deep-500">修改维修厂：</span>
+                                  {record.workshop}
+                                </p>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1141,16 +1163,41 @@ export default function MaintenanceList({ vehicleId }: MaintenanceListProps) {
 
             {/* 表单内容 */}
             <div className="p-5 space-y-4">
-              {/* 上次驳回原因 */}
-              {selectedRecord.rejectReason && (
-                <div className="p-4 rounded-xl bg-alert-red/10 border border-alert-red/20">
-                  <div className="flex items-center gap-2 mb-2">
-                    <AlertCircle className="w-4 h-4 text-alert-red shrink-0" />
-                    <p className="text-sm font-medium text-alert-red">上次驳回原因</p>
-                  </div>
-                  <p className="text-sm text-deep-600">{selectedRecord.rejectReason}</p>
-                </div>
-              )}
+              {(() => {
+                const rejectRecords = selectedRecord.approvalRecords?.filter(r => r.action === "reject") || [];
+                if (rejectRecords.length === 0 && selectedRecord.rejectReason) {
+                  return (
+                    <div className="p-4 rounded-xl bg-alert-red/10 border border-alert-red/20">
+                      <div className="flex items-center gap-2 mb-2">
+                        <AlertCircle className="w-4 h-4 text-alert-red shrink-0" />
+                        <p className="text-sm font-medium text-alert-red">上次驳回原因</p>
+                      </div>
+                      <p className="text-sm text-deep-600">{selectedRecord.rejectReason}</p>
+                    </div>
+                  );
+                }
+                if (rejectRecords.length > 0) {
+                  return (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-alert-red shrink-0" />
+                        <p className="text-sm font-medium text-alert-red">驳回记录（共{rejectRecords.length}次）</p>
+                      </div>
+                      {rejectRecords.map((rec, idx) => (
+                        <div key={rec.id} className="p-3 rounded-xl bg-alert-red/10 border border-alert-red/20">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-medium text-alert-red">第{idx + 1}次驳回</span>
+                            <span className="text-xs text-deep-400">{formatDateTime(rec.operatedAt)}</span>
+                          </div>
+                          {rec.reason && <p className="text-sm text-deep-600">{rec.reason}</p>}
+                          <p className="text-xs text-deep-400 mt-1">处理人：{rec.operator}（{rec.operatorRole}）</p>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
+                return null;
+              })()}
 
               <div>
                 <label className="label">

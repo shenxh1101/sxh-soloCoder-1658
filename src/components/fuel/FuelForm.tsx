@@ -38,7 +38,7 @@ export default function FuelForm({
   } = useStore();
 
   const isBackfill = mode === "backfill";
-  const beforeCreatedAt = new Date().toISOString();
+  const [beforeCreatedAt] = useState(() => new Date().toISOString());
 
   const [formData, setFormData] = useState({
     vehicleId: defaultVehicleId || "",

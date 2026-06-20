@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Fuel, DollarSign, Wrench, Truck } from "lucide-react";
+import { ArrowLeft, Fuel, DollarSign, Wrench, Truck, Shield, ArrowRight } from "lucide-react";
 import { useStore } from "@/store";
 import VehicleInfo from "@/components/vehicle/VehicleInfo";
 import FuelTrendChart from "@/components/charts/FuelTrendChart";
@@ -15,6 +15,7 @@ import {
   formatConsumption,
   maintenanceTypeLabel,
   maintenanceStatusLabel,
+  formatDateTime,
 } from "@/utils/formatters";
 import { cn } from "@/lib/utils";
 import type { MaintenanceType, MaintenanceStatus } from "@/types";
@@ -32,6 +33,7 @@ export default function VehicleDetail() {
     getVehicleById,
     getFuelRecordsByVehicle,
     getMaintenanceRecordsByVehicle,
+    getRiskTimeline,
   } = useStore();
 
   const vehicle = id ? getVehicleById(id) : undefined;
@@ -96,6 +98,10 @@ export default function VehicleDetail() {
     if (consumptions.length === 0) return undefined;
     return consumptions.reduce((s, n) => s + n, 0) / consumptions.length;
   }, [fuelRecords]);
+
+  const riskTimeline = useMemo(() => {
+    return id ? getRiskTimeline(id) : [];
+  }, [id, getRiskTimeline]);
 
   // 维修类型配置
   const maintenanceTypeConfig: Record<
@@ -245,6 +251,96 @@ export default function VehicleDetail() {
           <MaintenanceTimeline vehicleId={vehicle.id} />
         </div>
       </div>
+
+      {/* 风险处置时间线 */}
+      {riskTimeline.length > 0 && (
+        <div className="card p-6 rounded-[12px]">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="section-title">
+              <div className="w-8 h-8 rounded-lg bg-alert-yellow/10 flex items-center justify-center">
+                <Shield className="w-4 h-4 text-alert-yellow" />
+              </div>
+              风险处置时间线
+            </h3>
+            <span className="text-xs text-deep-400">
+              共 {riskTimeline.length} 条记录
+            </span>
+          </div>
+          <div className="relative pl-4">
+            <div className="absolute left-1.5 top-2 bottom-2 w-0.5 bg-deep-100" />
+            <div className="space-y-4">
+              {riskTimeline.map((event) => {
+                const isHandled = event.eventType === "anomaly_handled";
+                const isResubmit = event.id.startsWith("resubmit-");
+                const dotColor = isHandled
+                  ? "bg-fuel-500"
+                  : isResubmit
+                    ? "bg-blue-500"
+                    : "bg-alert-yellow";
+                const cardBg = isHandled
+                  ? "bg-fuel-50/50 border-fuel-100"
+                  : isResubmit
+                    ? "bg-blue-50/50 border-blue-100"
+                    : "bg-alert-yellow/10 border-alert-yellow/20";
+                return (
+                  <div key={event.id} className="relative pl-8">
+                    <div
+                      className={cn(
+                        "absolute left-0 top-1 w-4 h-4 rounded-full border-4 border-white shadow-sm z-10",
+                        dotColor
+                      )}
+                    />
+                    <div className={cn("p-4 rounded-xl border", cardBg)}>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={cn(
+                              "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-white",
+                              dotColor
+                            )}
+                          >
+                            {isHandled
+                              ? "异常处理"
+                              : isResubmit
+                                ? "重新提交"
+                                : "异常检测"}
+                          </span>
+                          <span className="text-sm font-medium text-deep-700">
+                            {event.title}
+                          </span>
+                        </div>
+                        <span className="text-xs text-deep-400">
+                          {formatDateTime(event.occurredAt)}
+                        </span>
+                      </div>
+                      <p className="text-sm text-deep-600">
+                        {event.description}
+                      </p>
+                      {event.relatedRecordId && event.relatedRecordType && (
+                        <div className="mt-2 pt-2 border-t border-deep-100">
+                          <button
+                            onClick={() =>
+                              navigate(
+                                event.relatedRecordType === "fuel"
+                                  ? "/fuel"
+                                  : "/maintenance"
+                              )
+                            }
+                            className="inline-flex items-center gap-1 text-xs text-deep-500 hover:text-deep-700 transition-colors"
+                          >
+                            查看关联
+                            <ArrowRight className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 第三行：加油历史表格 + 维修记录表格 */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
