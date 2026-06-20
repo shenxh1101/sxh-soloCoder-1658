@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Download,
   Upload,
@@ -14,6 +14,12 @@ import {
   Wrench,
   Loader2,
   X,
+  RotateCcw,
+  Clock,
+  User,
+  History,
+  ChevronRight,
+  AlertTriangle,
 } from "lucide-react";
 import { useStore } from "@/store";
 import {
@@ -27,23 +33,30 @@ import type {
   ImportEntityType,
   ImportPreviewResult,
   ImportPreviewItem,
+  ImportBatch,
 } from "@/types";
 import { cn } from "@/lib/utils";
 
 type ImportResultWithType = ImportResult & {
   entityType: ImportEntityType;
   timestamp: string;
+  batchId?: string;
 };
+
+type TabType = "export" | "import" | "batches";
 
 export default function SettingsPage() {
   const {
     vehicles,
     fuelRecords,
     maintenanceRecords,
-    importFromCSV,
+    importFromCSVWithBatch,
     previewImportCSV,
+    getImportBatches,
+    rollbackImportBatch,
   } = useStore();
 
+  const [activeTab, setActiveTab] = useState<TabType>("export");
   const [importResults, setImportResults] = useState<ImportResultWithType | null>(
     null
   );
@@ -54,15 +67,28 @@ export default function SettingsPage() {
   const [previewEntityType, setPreviewEntityType] =
     useState<ImportEntityType | null>(null);
   const [currentCSVText, setCurrentCSVText] = useState<string>("");
+  const [currentFileName, setCurrentFileName] = useState<string>("");
   const [expandedGroups, setExpandedGroups] = useState<{
     add: boolean;
     skip: boolean;
     error: boolean;
   }>({ add: true, skip: true, error: true });
+  const [batches, setBatches] = useState<ImportBatch[]>([]);
+  const [expandedBatchId, setExpandedBatchId] = useState<string | null>(null);
+  const [rollbackBatch, setRollbackBatch] = useState<ImportBatch | null>(null);
+  const [isRollingBack, setIsRollingBack] = useState(false);
 
   const vehicleInputRef = useRef<HTMLInputElement>(null);
   const fuelInputRef = useRef<HTMLInputElement>(null);
   const maintenanceInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setBatches(getImportBatches());
+  }, [getImportBatches, importResults]);
+
+  const refreshBatches = () => {
+    setBatches(getImportBatches());
+  };
 
   const vehicleMap = vehicles.reduce<Record<string, string>>((acc, v) => {
     acc[v.id] = v.plateNumber;
@@ -125,6 +151,7 @@ export default function SettingsPage() {
         const preview = previewImportCSV(entityType, csvText);
 
         setCurrentCSVText(csvText);
+        setCurrentFileName(file.name);
         setPreviewResult(preview);
         setPreviewEntityType(entityType);
         setExpandedGroups({ add: true, skip: true, error: true });
@@ -179,17 +206,24 @@ export default function SettingsPage() {
 
     setIsImporting(true);
     try {
-      const result = importFromCSV(previewEntityType, currentCSVText);
+      const { batch, result } = importFromCSVWithBatch(
+        previewEntityType,
+        currentCSVText,
+        currentFileName
+      );
 
       setImportResults({
         ...result,
         entityType: previewEntityType,
         timestamp: new Date().toLocaleString("zh-CN"),
+        batchId: batch.id,
       });
       setShowErrorList(result.errors.length > 0);
       setPreviewResult(null);
       setPreviewEntityType(null);
       setCurrentCSVText("");
+      setCurrentFileName("");
+      refreshBatches();
     } catch (error) {
       setImportResults({
         success: 0,
@@ -209,6 +243,42 @@ export default function SettingsPage() {
     } finally {
       setIsImporting(false);
     }
+  };
+
+  const handleRollback = async () => {
+    if (!rollbackBatch) return;
+
+    setIsRollingBack(true);
+    try {
+      const success = rollbackImportBatch(rollbackBatch.id);
+      if (success) {
+        refreshBatches();
+        setRollbackBatch(null);
+      }
+    } finally {
+      setIsRollingBack(false);
+    }
+  };
+
+  const formatDateTime = (isoString: string) => {
+    return new Date(isoString).toLocaleString("zh-CN");
+  };
+
+  const getRollbackCount = (batch: ImportBatch) => {
+    if (batch.entityType === "vehicle") {
+      const vehicleIds = batch.recordIds;
+      const relatedFuel = fuelRecords.filter((r) =>
+        vehicleIds.includes(r.vehicleId)
+      ).length;
+      const relatedMaintenance = maintenanceRecords.filter((r) =>
+        vehicleIds.includes(r.vehicleId)
+      ).length;
+      return {
+        primary: batch.result.success,
+        related: relatedFuel + relatedMaintenance,
+      };
+    }
+    return { primary: batch.result.success, related: 0 };
   };
 
   const handleCancelPreview = () => {
@@ -268,6 +338,12 @@ export default function SettingsPage() {
     return { plateNumber, keyInfo, summary };
   };
 
+  const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
+    { id: "export", label: "数据导出", icon: <Download className="w-4 h-4" /> },
+    { id: "import", label: "数据导入", icon: <Upload className="w-4 h-4" /> },
+    { id: "batches", label: "导入批次记录", icon: <History className="w-4 h-4" /> },
+  ];
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="page-header">
@@ -284,19 +360,38 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="card rounded-[12px] p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-9 h-9 rounded-lg bg-fuel-50 flex items-center justify-center">
-              <Download className="w-4 h-4 text-fuel-600" />
+      <div className="flex items-center gap-1 p-1 bg-deep-50 rounded-xl w-fit">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
+              activeTab === tab.id
+                ? "bg-white text-orange-600 shadow-sm"
+                : "text-deep-500 hover:text-deep-700 hover:bg-deep-100/50"
+            )}
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "export" && (
+        <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
+          <div className="card rounded-[12px] p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-9 h-9 rounded-lg bg-fuel-50 flex items-center justify-center">
+                <Download className="w-4 h-4 text-fuel-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-deep-700">
+                  数据导出
+                </h2>
+                <p className="text-xs text-deep-400">将系统数据导出为CSV格式</p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-lg font-semibold text-deep-700">
-                数据导出
-              </h2>
-              <p className="text-xs text-deep-400">将系统数据导出为CSV格式</p>
-            </div>
-          </div>
 
           <div className="space-y-3">
             <button
@@ -353,20 +448,87 @@ export default function SettingsPage() {
               <Download className="w-5 h-5 text-deep-400 group-hover:text-orange-500 transition-colors" />
             </button>
           </div>
-        </div>
+          </div>
 
-        <div className="card rounded-[12px] p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-9 h-9 rounded-lg bg-orange-50 flex items-center justify-center">
-              <Upload className="w-4 h-4 text-orange-500" />
+          <div className="card rounded-[12px] p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-9 h-9 rounded-lg bg-deep-50 flex items-center justify-center">
+                <FileText className="w-4 h-4 text-deep-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-deep-700">模板下载</h2>
+                <p className="text-xs text-deep-400">
+                  下载CSV导入模板，按照格式填写数据后导入
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-lg font-semibold text-deep-700">
-                数据导入
-              </h2>
-              <p className="text-xs text-deep-400">从CSV文件批量导入数据</p>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <button
+                onClick={() => handleDownloadTemplate("vehicle")}
+                className="flex items-center gap-3 p-4 rounded-xl border border-deep-100 bg-white hover:bg-blue-50/50 hover:border-blue-200 transition-all group text-left"
+              >
+                <div
+                  className={cn(
+                    "w-10 h-10 rounded-lg flex items-center justify-center",
+                    "bg-blue-50 group-hover:bg-blue-100 transition-colors"
+                  )}
+                >
+                  <Truck className="w-5 h-5 text-blue-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-deep-700 text-sm">车辆档案模板</p>
+                  <p className="text-xs text-deep-400 truncate">包含车牌号、车型等字段</p>
+                </div>
+                <Download className="w-4 h-4 text-deep-400 group-hover:text-blue-500 transition-colors shrink-0" />
+              </button>
+
+              <button
+                onClick={() => handleDownloadTemplate("fuel")}
+                className="flex items-center gap-3 p-4 rounded-xl border border-deep-100 bg-white hover:bg-green-50/50 hover:border-green-200 transition-all group text-left"
+              >
+                <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center group-hover:bg-green-100 transition-colors">
+                  <Fuel className="w-5 h-5 text-green-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-deep-700 text-sm">加油记录模板</p>
+                  <p className="text-xs text-deep-400 truncate">包含加油量、金额等字段</p>
+                </div>
+                <Download className="w-4 h-4 text-deep-400 group-hover:text-green-500 transition-colors shrink-0" />
+              </button>
+
+              <button
+                onClick={() => handleDownloadTemplate("maintenance")}
+                className="flex items-center gap-3 p-4 rounded-xl border border-deep-100 bg-white hover:bg-purple-50/50 hover:border-purple-200 transition-all group text-left"
+              >
+                <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center group-hover:bg-purple-100 transition-colors">
+                  <Wrench className="w-5 h-5 text-purple-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-deep-700 text-sm">维修记录模板</p>
+                  <p className="text-xs text-deep-400 truncate">包含维修类型、费用等字段</p>
+                </div>
+                <Download className="w-4 h-4 text-deep-400 group-hover:text-purple-500 transition-colors shrink-0" />
+              </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {activeTab === "import" && (
+        <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
+          <div className="card rounded-[12px] p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-9 h-9 rounded-lg bg-orange-50 flex items-center justify-center">
+                <Upload className="w-4 h-4 text-orange-500" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-deep-700">
+                  数据导入
+                </h2>
+                <p className="text-xs text-deep-400">从CSV文件批量导入数据</p>
+              </div>
+            </div>
 
           <div className="space-y-3">
             <div className="relative">
@@ -456,10 +618,9 @@ export default function SettingsPage() {
               </button>
             </div>
           </div>
-        </div>
-      </div>
+          </div>
 
-      {previewResult && previewEntityType && (
+          {previewResult && previewEntityType && (
         <div className="card rounded-[12px] p-6">
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-3">
@@ -741,27 +902,43 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {importResults && (
-        <div className="card rounded-[12px] p-6">
-          <div className="flex items-center justify-between mb-5">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-deep-50 flex items-center justify-center">
-                <FileText className="w-4 h-4 text-deep-600" />
+          {importResults && (
+            <div className="card rounded-[12px] p-6">
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-deep-50 flex items-center justify-center">
+                    <FileText className="w-4 h-4 text-deep-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-deep-700">
+                      导入结果
+                    </h2>
+                    <p className="text-xs text-deep-400">
+                      {entityTypeLabels[importResults.entityType]} ·{" "}
+                      {importResults.timestamp}
+                    </p>
+                    {importResults.batchId && (
+                      <p className="text-xs text-orange-600 mt-0.5">
+                        批次号：{importResults.batchId}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  {importResults.batchId && (
+                    <button
+                      onClick={() => setActiveTab("batches")}
+                      className="text-xs text-orange-600 hover:text-orange-700 font-medium flex items-center gap-1"
+                    >
+                      <History className="w-3.5 h-3.5" />
+                      查看批次记录
+                    </button>
+                  )}
+                  <div className="text-xs text-deep-400">
+                    共处理 {importResults.total} 条数据
+                  </div>
+                </div>
               </div>
-              <div>
-                <h2 className="text-lg font-semibold text-deep-700">
-                  导入结果
-                </h2>
-                <p className="text-xs text-deep-400">
-                  {entityTypeLabels[importResults.entityType]} ·{" "}
-                  {importResults.timestamp}
-                </p>
-              </div>
-            </div>
-            <div className="text-xs text-deep-400">
-              共处理 {importResults.total} 条数据
-            </div>
-          </div>
 
           <div className="grid grid-cols-3 gap-4 mb-5">
             <div className="p-4 rounded-xl bg-green-50 border border-green-100">
@@ -832,71 +1009,426 @@ export default function SettingsPage() {
               )}
             </div>
           )}
+            </div>
+          )}
         </div>
       )}
 
-      <div className="card rounded-[12px] p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-9 h-9 rounded-lg bg-deep-50 flex items-center justify-center">
-            <FileText className="w-4 h-4 text-deep-600" />
+      {activeTab === "batches" && (
+        <div className="card rounded-[12px] p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
+              <History className="w-4 h-4 text-blue-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-deep-700">导入批次记录</h2>
+              <p className="text-xs text-deep-400">查看和管理历史导入批次，支持撤回操作</p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-lg font-semibold text-deep-700">模板下载</h2>
-            <p className="text-xs text-deep-400">
-              下载CSV导入模板，按照格式填写数据后导入
-            </p>
+
+          {batches.length === 0 ? (
+            <div className="text-center py-12">
+              <History className="w-12 h-12 text-deep-300 mx-auto mb-3" />
+              <p className="text-deep-500 text-sm">暂无导入批次记录</p>
+              <button
+                onClick={() => setActiveTab("import")}
+                className="mt-4 text-sm text-orange-600 hover:text-orange-700 font-medium"
+              >
+                去导入数据
+              </button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-deep-100">
+                    <th className="text-left py-3 px-4 text-xs font-medium text-deep-500">
+                      <div className="flex items-center gap-2">
+                        <Clock className="w-3.5 h-3.5" />
+                        导入时间
+                      </div>
+                    </th>
+                    <th className="text-left py-3 px-4 text-xs font-medium text-deep-500">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-3.5 h-3.5" />
+                        文件名
+                      </div>
+                    </th>
+                    <th className="text-left py-3 px-4 text-xs font-medium text-deep-500">
+                      数据类型
+                    </th>
+                    <th className="text-left py-3 px-4 text-xs font-medium text-deep-500">
+                      <div className="flex items-center gap-2">
+                        <User className="w-3.5 h-3.5" />
+                        导入人
+                      </div>
+                    </th>
+                    <th className="text-left py-3 px-4 text-xs font-medium text-deep-500">
+                      结果
+                    </th>
+                    <th className="text-left py-3 px-4 text-xs font-medium text-deep-500">
+                      状态
+                    </th>
+                    <th className="text-right py-3 px-4 text-xs font-medium text-deep-500">
+                      操作
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {batches.map((batch) => {
+                    const isExpanded = expandedBatchId === batch.id;
+                    const rollbackInfo = getRollbackCount(batch);
+                    return (
+                      <>
+                        <tr
+                          key={batch.id}
+                          className={cn(
+                            "border-b border-deep-50 hover:bg-deep-50/50 transition-colors",
+                            batch.rolledBack && "bg-deep-50/50"
+                          )}
+                        >
+                          <td className="py-3 px-4 text-sm">
+                            <span
+                              className={cn(
+                                batch.rolledBack && "text-deep-400"
+                              )}
+                            >
+                              {formatDateTime(batch.importedAt)}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-sm">
+                            <span
+                              className={cn(
+                                "font-medium",
+                                batch.rolledBack
+                                  ? "text-deep-400"
+                                  : "text-deep-700"
+                              )}
+                            >
+                              {batch.fileName}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-sm">
+                            <span
+                              className={cn(
+                                "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium",
+                                batch.entityType === "vehicle" &&
+                                  "bg-blue-50 text-blue-700",
+                                batch.entityType === "fuel" &&
+                                  "bg-green-50 text-green-700",
+                                batch.entityType === "maintenance" &&
+                                  "bg-purple-50 text-purple-700",
+                                batch.rolledBack &&
+                                  "bg-deep-100 text-deep-500"
+                              )}
+                            >
+                              {entityTypeLabels[batch.entityType]}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-sm">
+                            <span
+                              className={cn(
+                                batch.rolledBack && "text-deep-400"
+                              )}
+                            >
+                              {batch.importedBy}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-sm">
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex items-center gap-1 text-xs">
+                                <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+                                <span
+                                  className={cn(
+                                    "font-medium",
+                                    batch.rolledBack
+                                      ? "text-deep-400"
+                                      : "text-green-700"
+                                  )}
+                                >
+                                  {batch.result.success}
+                                </span>
+                              </span>
+                              <span className="text-deep-200">|</span>
+                              <span className="inline-flex items-center gap-1 text-xs">
+                                <XCircle className="w-3.5 h-3.5 text-red-500" />
+                                <span
+                                  className={cn(
+                                    "font-medium",
+                                    batch.rolledBack
+                                      ? "text-deep-400"
+                                      : "text-red-700"
+                                  )}
+                                >
+                                  {batch.result.failed}
+                                </span>
+                              </span>
+                              <span className="text-deep-200">|</span>
+                              <span className="inline-flex items-center gap-1 text-xs">
+                                <AlertCircle className="w-3.5 h-3.5 text-yellow-500" />
+                                <span
+                                  className={cn(
+                                    "font-medium",
+                                    batch.rolledBack
+                                      ? "text-deep-400"
+                                      : "text-yellow-700"
+                                  )}
+                                >
+                                  {batch.result.skipped}
+                                </span>
+                              </span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 text-sm">
+                            {batch.rolledBack ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-deep-100 text-deep-500">
+                                <RotateCcw className="w-3 h-3" />
+                                已撤回
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700">
+                                <CheckCircle className="w-3 h-3" />
+                                已导入
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() =>
+                                  setExpandedBatchId(
+                                    isExpanded ? null : batch.id
+                                  )
+                                }
+                                className="p-1.5 rounded-lg hover:bg-deep-100 transition-colors text-deep-500 hover:text-deep-700"
+                                title={isExpanded ? "收起详情" : "展开详情"}
+                              >
+                                {isExpanded ? (
+                                  <ChevronUp className="w-4 h-4" />
+                                ) : (
+                                  <ChevronDown className="w-4 h-4" />
+                                )}
+                              </button>
+                              {!batch.rolledBack && (
+                                <button
+                                  onClick={() => setRollbackBatch(batch)}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                  撤回
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr className="bg-deep-50/30">
+                            <td colSpan={7} className="py-4 px-6">
+                              <div className="space-y-4">
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                  <div>
+                                    <p className="text-xs text-deep-500 mb-1">
+                                      批次ID
+                                    </p>
+                                    <p className="text-sm font-mono text-deep-700">
+                                      {batch.id}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs text-deep-500 mb-1">
+                                      导入记录数
+                                    </p>
+                                    <p className="text-sm text-deep-700">
+                                      {batch.recordIds.length} 条
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs text-deep-500 mb-1">
+                                      总处理数
+                                    </p>
+                                    <p className="text-sm text-deep-700">
+                                      {batch.result.total} 条
+                                    </p>
+                                  </div>
+                                  {batch.rolledBack && batch.rolledBackAt && (
+                                    <div>
+                                      <p className="text-xs text-deep-500 mb-1">
+                                        撤回时间
+                                      </p>
+                                      <p className="text-sm text-deep-700">
+                                        {formatDateTime(batch.rolledBackAt)}
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                                {batch.result.errors.length > 0 && (
+                                  <div>
+                                    <p className="text-xs text-deep-500 mb-2 font-medium">
+                                      错误详情 ({batch.result.errors.length} 条)
+                                    </p>
+                                    <div className="max-h-40 overflow-y-auto border border-deep-100 rounded-lg">
+                                      <div className="divide-y divide-deep-50">
+                                        {batch.result.errors.map(
+                                          (error, idx) => (
+                                            <div
+                                              key={idx}
+                                              className="px-3 py-2 flex items-start gap-2 text-sm"
+                                            >
+                                              <span className="text-xs font-mono text-deep-400 bg-deep-100 px-1.5 py-0.5 rounded shrink-0">
+                                                {error.row > 0
+                                                  ? `第 ${error.row} 行`
+                                                  : "系统"}
+                                              </span>
+                                              <span className="text-deep-600">
+                                                {error.message}
+                                              </span>
+                                            </div>
+                                          )
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                                {!batch.rolledBack && (
+                                  <div className="flex items-center justify-between p-3 bg-orange-50 rounded-lg border border-orange-100">
+                                    <div className="flex items-center gap-2">
+                                      <AlertTriangle className="w-4 h-4 text-orange-600" />
+                                      <span className="text-sm text-orange-800">
+                                        撤回将删除
+                                        <span className="font-semibold">
+                                          {" "}
+                                          {rollbackInfo.primary}{" "}
+                                        </span>
+                                        条
+                                        {entityTypeLabels[batch.entityType]}
+                                        记录
+                                        {rollbackInfo.related > 0 && (
+                                          <>
+                                            ，以及关联的{" "}
+                                            <span className="font-semibold">
+                                              {rollbackInfo.related}
+                                            </span>{" "}
+                                            条其他数据
+                                          </>
+                                        )}
+                                        ，此操作不可撤销
+                                      </span>
+                                    </div>
+                                    <button
+                                      onClick={() => setRollbackBatch(batch)}
+                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-red-500 hover:bg-red-600 transition-colors"
+                                    >
+                                      <RotateCcw className="w-3.5 h-3.5" />
+                                      撤回此批次
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {rollbackBatch && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 animate-fade-in">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center">
+                <AlertTriangle className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-deep-800">
+                  确认撤回批次
+                </h3>
+                <p className="text-sm text-deep-500">
+                  {rollbackBatch.fileName}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-4 mb-6">
+              <div className="p-4 bg-red-50 rounded-xl border border-red-100">
+                <p className="text-sm text-red-800 leading-relaxed">
+                  此操作将删除该批次导入的所有数据，包括：
+                </p>
+                <ul className="mt-2 space-y-1.5">
+                  <li className="flex items-center gap-2 text-sm text-red-700">
+                    <CheckCircle className="w-4 h-4 text-red-500" />
+                    <span>
+                      <span className="font-semibold">
+                        {getRollbackCount(rollbackBatch).primary}
+                      </span>{" "}
+                      条{entityTypeLabels[rollbackBatch.entityType]}记录
+                    </span>
+                  </li>
+                  {getRollbackCount(rollbackBatch).related > 0 && (
+                    <li className="flex items-center gap-2 text-sm text-red-700">
+                      <CheckCircle className="w-4 h-4 text-red-500" />
+                      <span>
+                        <span className="font-semibold">
+                          {getRollbackCount(rollbackBatch).related}
+                        </span>{" "}
+                        条关联数据（加油、维修、规则等）
+                      </span>
+                    </li>
+                  )}
+                </ul>
+                <p className="mt-3 text-xs text-red-600 font-medium">
+                  ⚠️ 此操作不可撤销，请谨慎操作
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-deep-500 mb-1">批次ID</p>
+                  <p className="font-mono text-deep-700">{rollbackBatch.id}</p>
+                </div>
+                <div>
+                  <p className="text-deep-500 mb-1">导入时间</p>
+                  <p className="text-deep-700">
+                    {formatDateTime(rollbackBatch.importedAt)}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setRollbackBatch(null)}
+                disabled={isRollingBack}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-deep-200 text-deep-700 font-medium hover:bg-deep-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleRollback}
+                disabled={isRollingBack}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-red-500 text-white font-medium hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isRollingBack ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    撤回中...
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="w-4 h-4" />
+                    确认撤回
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <button
-            onClick={() => handleDownloadTemplate("vehicle")}
-            className="flex items-center gap-3 p-4 rounded-xl border border-deep-100 bg-white hover:bg-blue-50/50 hover:border-blue-200 transition-all group text-left"
-          >
-            <div
-              className={cn(
-                "w-10 h-10 rounded-lg flex items-center justify-center",
-                "bg-blue-50 group-hover:bg-blue-100 transition-colors"
-              )}
-            >
-              <Truck className="w-5 h-5 text-blue-600" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-deep-700 text-sm">车辆档案模板</p>
-              <p className="text-xs text-deep-400 truncate">包含车牌号、车型等字段</p>
-            </div>
-            <Download className="w-4 h-4 text-deep-400 group-hover:text-blue-500 transition-colors shrink-0" />
-          </button>
-
-          <button
-            onClick={() => handleDownloadTemplate("fuel")}
-            className="flex items-center gap-3 p-4 rounded-xl border border-deep-100 bg-white hover:bg-green-50/50 hover:border-green-200 transition-all group text-left"
-          >
-            <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center group-hover:bg-green-100 transition-colors">
-              <Fuel className="w-5 h-5 text-green-600" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-deep-700 text-sm">加油记录模板</p>
-              <p className="text-xs text-deep-400 truncate">包含加油量、金额等字段</p>
-            </div>
-            <Download className="w-4 h-4 text-deep-400 group-hover:text-green-500 transition-colors shrink-0" />
-          </button>
-
-          <button
-            onClick={() => handleDownloadTemplate("maintenance")}
-            className="flex items-center gap-3 p-4 rounded-xl border border-deep-100 bg-white hover:bg-purple-50/50 hover:border-purple-200 transition-all group text-left"
-          >
-            <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center group-hover:bg-purple-100 transition-colors">
-              <Wrench className="w-5 h-5 text-purple-600" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-deep-700 text-sm">维修记录模板</p>
-              <p className="text-xs text-deep-400 truncate">包含维修类型、费用等字段</p>
-            </div>
-            <Download className="w-4 h-4 text-deep-400 group-hover:text-purple-500 transition-colors shrink-0" />
-          </button>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

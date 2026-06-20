@@ -13,15 +13,23 @@ import {
   ThumbsDown,
   AlertCircle,
   Send,
+  FileText,
+  User,
+  Calendar,
+  RefreshCw,
+  ChevronRight,
+  History,
+  Settings,
 } from "lucide-react";
 import { useStore } from "@/store";
-import type { MaintenanceType, MaintenanceStatus } from "@/types";
+import type { MaintenanceType, MaintenanceStatus, MaintenanceRecord, ApprovalRecord } from "@/types";
 import {
   formatDate,
   formatCurrency,
   formatKm,
   maintenanceTypeLabel,
   maintenanceStatusLabel,
+  formatDateTime,
 } from "@/utils/formatters";
 import { cn } from "@/lib/utils";
 import MaintenanceForm from "./MaintenanceForm";
@@ -49,10 +57,14 @@ export default function MaintenanceList({ vehicleId }: MaintenanceListProps) {
   // 弹窗状态
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showResubmitModal, setShowResubmitModal] = useState(false);
   const [selectedMaintenanceId, setSelectedMaintenanceId] = useState<
     string | null
   >(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [resubmitDescription, setResubmitDescription] = useState("");
+  const [resubmitWorkshop, setResubmitWorkshop] = useState("");
 
   // 过滤和排序记录
   const filteredRecords = useMemo(() => {
@@ -139,11 +151,71 @@ export default function MaintenanceList({ vehicleId }: MaintenanceListProps) {
     handleCloseModal();
   };
 
+  // 获取选中的维修记录
+  const selectedRecord = useMemo(() => {
+    if (!selectedMaintenanceId) return null;
+    return maintenanceRecords.find((r) => r.id === selectedMaintenanceId) || null;
+  }, [selectedMaintenanceId, maintenanceRecords]);
+
+  // 获取审批记录
+  const approvalRecords = useMemo(() => {
+    if (!selectedMaintenanceId) return [];
+    return useStore.getState().getApprovalRecordsByMaintenance(selectedMaintenanceId);
+  }, [selectedMaintenanceId]);
+
+  // 打开详情弹窗
+  const handleOpenDetail = (id: string) => {
+    setSelectedMaintenanceId(id);
+    setShowDetailModal(true);
+  };
+
+  // 关闭详情弹窗
+  const handleCloseDetailModal = () => {
+    setShowDetailModal(false);
+    setSelectedMaintenanceId(null);
+  };
+
+  // 打开重新提交弹窗
+  const handleOpenResubmit = () => {
+    if (selectedRecord) {
+      setResubmitDescription(selectedRecord.description);
+      setResubmitWorkshop(selectedRecord.workshop);
+      setShowResubmitModal(true);
+    }
+  };
+
+  // 关闭重新提交弹窗
+  const handleCloseResubmitModal = () => {
+    setShowResubmitModal(false);
+    setResubmitDescription("");
+    setResubmitWorkshop("");
+  };
+
+  // 执行重新提交
+  const handleResubmit = () => {
+    if (!resubmitDescription.trim()) {
+      alert("请填写故障描述");
+      return;
+    }
+    if (!resubmitWorkshop.trim()) {
+      alert("请填写维修厂");
+      return;
+    }
+    if (selectedMaintenanceId) {
+      useStore.getState().resubmitMaintenance(selectedMaintenanceId, {
+        description: resubmitDescription.trim(),
+        workshop: resubmitWorkshop.trim(),
+      });
+      handleCloseResubmitModal();
+      handleCloseDetailModal();
+    }
+  };
+
   // 审批通过
   const handleApprove = (id: string) => {
     const confirmed = window.confirm("确认通过此维修申请？通过后将进入待处理状态。");
     if (!confirmed) return;
-    useStore.getState().approveMaintenance(id);
+    useStore.getState().approveMaintenanceWithRecord(id);
   };
 
   // 打开驳回弹窗
@@ -383,8 +455,9 @@ export default function MaintenanceList({ vehicleId }: MaintenanceListProps) {
                 return (
                   <tr
                     key={record.id}
+                    onClick={() => handleOpenDetail(record.id)}
                     className={cn(
-                      "hover:bg-deep-50/40 transition-colors",
+                      "hover:bg-deep-50/40 transition-colors cursor-pointer",
                       record.status === "pending" && "bg-alert-yellow/5",
                       index % 2 === 1 &&
                         record.status !== "pending" &&
@@ -483,14 +556,20 @@ export default function MaintenanceList({ vehicleId }: MaintenanceListProps) {
                       {record.status === "pending_approval" && (
                         <div className="inline-flex items-center gap-1">
                           <button
-                            onClick={() => handleApprove(record.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleApprove(record.id);
+                            }}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-fuel-500 text-white text-xs font-medium hover:bg-fuel-600 transition-colors"
                           >
                             <ThumbsUp className="w-3.5 h-3.5" />
                             通过
                           </button>
                           <button
-                            onClick={() => handleOpenReject(record.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenReject(record.id);
+                            }}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-alert-red text-white text-xs font-medium hover:bg-alert-red/80 transition-colors"
                           >
                             <ThumbsDown className="w-3.5 h-3.5" />
@@ -500,15 +579,39 @@ export default function MaintenanceList({ vehicleId }: MaintenanceListProps) {
                       )}
                       {record.status === "pending" && (
                         <button
-                          onClick={() => handleOpenComplete(record.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenComplete(record.id);
+                          }}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fuel-500 text-white text-xs font-medium hover:bg-fuel-600 transition-colors shadow-sm"
                         >
                           <CheckCircle2 className="w-3.5 h-3.5" />
                           完成维修
                         </button>
                       )}
-                      {(record.status === "completed" || record.status === "rejected") && (
-                        <span className="text-xs text-deep-400">--</span>
+                      {record.status === "rejected" && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenDetail(record.id);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-deep-100 text-deep-600 text-xs font-medium hover:bg-deep-200 transition-colors"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          查看详情
+                        </button>
+                      )}
+                      {record.status === "completed" && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenDetail(record.id);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-deep-100 text-deep-600 text-xs font-medium hover:bg-deep-200 transition-colors"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          查看详情
+                        </button>
                       )}
                     </td>
                   </tr>
@@ -621,6 +724,482 @@ export default function MaintenanceList({ vehicleId }: MaintenanceListProps) {
                 >
                   <Send className="w-4 h-4" />
                   确认驳回
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 详情弹窗 */}
+      {showDetailModal && selectedRecord && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-deep-900/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto animate-slide-up">
+            {/* 弹窗头部 */}
+            <div className="flex items-center justify-between p-5 border-b border-deep-50 sticky top-0 bg-white z-10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-repair-50 flex items-center justify-center">
+                  <FileText className="w-5 h-5 text-repair-500" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-deep-700">
+                    维修记录详情
+                  </h3>
+                  <p className="text-xs text-deep-400 mt-0.5">
+                    查看维修申请的完整信息和审批历史
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleCloseDetailModal}
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-deep-400 hover:text-deep-600 hover:bg-deep-50 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-5">
+              {/* 基本信息 */}
+              <div className="space-y-4">
+                <h4 className="text-sm font-semibold text-deep-700 flex items-center gap-2">
+                  <div className="w-1 h-4 bg-repair-500 rounded-full" />
+                  基本信息
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-deep-50 flex items-center justify-center shrink-0">
+                      <Truck className="w-4 h-4 text-deep-500" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-deep-400">车牌</p>
+                      <p className="text-sm font-medium text-deep-700">
+                        {getVehicleById(selectedRecord.vehicleId)?.plateNumber || "--"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-deep-50 flex items-center justify-center shrink-0">
+                      <Wrench className="w-4 h-4 text-deep-500" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-deep-400">车型</p>
+                      <p className="text-sm font-medium text-deep-700">
+                        {getVehicleById(selectedRecord.vehicleId)?.model || "--"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-deep-50 flex items-center justify-center shrink-0">
+                      <User className="w-4 h-4 text-deep-500" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-deep-400">司机</p>
+                      <p className="text-sm font-medium text-deep-700">
+                        {getVehicleById(selectedRecord.vehicleId)?.driverName || "--"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-deep-50 flex items-center justify-center shrink-0">
+                      <Settings className="w-4 h-4 text-deep-500" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-deep-400">维修类型</p>
+                      <p className="text-sm font-medium text-deep-700">
+                        {maintenanceTypeLabel(selectedRecord.type)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-deep-50 flex items-center justify-center shrink-0">
+                      <MapPin className="w-4 h-4 text-deep-500" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-deep-400">维修厂</p>
+                      <p className="text-sm font-medium text-deep-700">
+                        {selectedRecord.workshop || "--"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-deep-50 flex items-center justify-center shrink-0">
+                      <Calendar className="w-4 h-4 text-deep-500" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-deep-400">申请日期</p>
+                      <p className="text-sm font-medium text-deep-700">
+                        {formatDate(selectedRecord.applyDate)}
+                      </p>
+                    </div>
+                  </div>
+                  {selectedRecord.status === "completed" && (
+                    <>
+                      <div className="flex items-start gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-deep-50 flex items-center justify-center shrink-0">
+                          <CheckCircle2 className="w-4 h-4 text-deep-500" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-deep-400">完成日期</p>
+                          <p className="text-sm font-medium text-deep-700">
+                            {formatDate(selectedRecord.finishDate)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-deep-50 flex items-center justify-center shrink-0">
+                          <DollarSign className="w-4 h-4 text-deep-500" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-deep-400">费用</p>
+                          <p className="num text-sm font-semibold text-orange-600">
+                            {formatCurrency(selectedRecord.cost, 0)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-deep-50 flex items-center justify-center shrink-0">
+                          <Truck className="w-4 h-4 text-deep-500" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-deep-400">维修后里程</p>
+                          <p className="num text-sm font-medium text-deep-700">
+                            {formatKm(selectedRecord.mileageAfter)}
+                          </p>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-deep-50 flex items-center justify-center shrink-0">
+                      <Clock className="w-4 h-4 text-deep-500" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-deep-400">当前状态</p>
+                      <div>
+                        {selectedRecord.status === "pending_approval" && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-deep-50 text-deep-600 text-xs font-medium border border-deep-200">
+                            <Clock className="w-3 h-3" />
+                            {maintenanceStatusLabel(selectedRecord.status)}
+                          </span>
+                        )}
+                        {selectedRecord.status === "rejected" && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-alert-red/20 text-alert-red text-xs font-medium">
+                            <X className="w-3 h-3" />
+                            {maintenanceStatusLabel(selectedRecord.status)}
+                          </span>
+                        )}
+                        {selectedRecord.status === "pending" && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-alert-yellow/20 text-alert-yellow text-xs font-medium">
+                            <Clock className="w-3 h-3" />
+                            {maintenanceStatusLabel(selectedRecord.status)}
+                          </span>
+                        )}
+                        {selectedRecord.status === "completed" && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-fuel-50 text-fuel-600 text-xs font-medium">
+                            <CheckCircle2 className="w-3 h-3" />
+                            {maintenanceStatusLabel(selectedRecord.status)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 故障描述 */}
+              <div className="space-y-2">
+                <h4 className="text-sm font-semibold text-deep-700 flex items-center gap-2">
+                  <div className="w-1 h-4 bg-alert-yellow rounded-full" />
+                  故障描述
+                </h4>
+                <div className="p-4 rounded-xl bg-deep-50/60">
+                  <p className="text-sm text-deep-600 leading-relaxed">
+                    {selectedRecord.description}
+                  </p>
+                </div>
+              </div>
+
+              {/* 备注信息 */}
+              {selectedRecord.notes && (
+                <div className="space-y-2">
+                  <h4 className="text-sm font-semibold text-deep-700 flex items-center gap-2">
+                    <div className="w-1 h-4 bg-deep-400 rounded-full" />
+                    备注信息
+                  </h4>
+                  <div className="p-4 rounded-xl bg-deep-50/60">
+                    <p className="text-sm text-deep-600 leading-relaxed">
+                      {selectedRecord.notes}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* 审批历史时间轴 */}
+              <div className="space-y-4">
+                <h4 className="text-sm font-semibold text-deep-700 flex items-center gap-2">
+                  <div className="w-1 h-4 bg-fuel-500 rounded-full" />
+                  审批历史
+                </h4>
+                <div className="relative pl-4">
+                  {/* 时间线竖线 */}
+                  <div className="absolute left-1.5 top-2 bottom-2 w-0.5 bg-deep-100" />
+                  
+                  <div className="space-y-4">
+                    {/* 提交记录 */}
+                    <div className="relative pl-8">
+                      <div className="absolute left-0 top-1 w-4 h-4 rounded-full bg-repair-500 border-4 border-white shadow-sm z-10" />
+                      <div className="p-4 rounded-xl bg-repair-50 border border-repair-100">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-repair-500 text-white text-xs font-medium">
+                              <Send className="w-3 h-3" />
+                              提交申请
+                            </span>
+                            <span className="text-xs text-deep-500">
+                              {getVehicleById(selectedRecord.vehicleId)?.driverName || "司机"}
+                            </span>
+                          </div>
+                          <span className="text-xs text-deep-400">
+                            {formatDateTime(selectedRecord.createdAt)}
+                          </span>
+                        </div>
+                        <p className="text-sm text-deep-600">
+                          司机提交了维修申请
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* 审批记录 */}
+                    {approvalRecords.map((record: ApprovalRecord, index: number) => (
+                      <div key={record.id} className="relative pl-8">
+                        <div
+                          className={cn(
+                            "absolute left-0 top-1 w-4 h-4 rounded-full border-4 border-white shadow-sm z-10",
+                            record.action === "approve" ? "bg-fuel-500" : "bg-alert-red"
+                          )}
+                        />
+                        <div
+                          className={cn(
+                            "p-4 rounded-xl border",
+                            record.action === "approve"
+                              ? "bg-fuel-50/50 border-fuel-100"
+                              : "bg-alert-red/10 border-alert-red/20"
+                          )}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={cn(
+                                  "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium",
+                                  record.action === "approve"
+                                    ? "bg-fuel-500 text-white"
+                                    : "bg-alert-red text-white"
+                                )}
+                              >
+                                {record.action === "approve" ? (
+                                  <ThumbsUp className="w-3 h-3" />
+                                ) : (
+                                  <ThumbsDown className="w-3 h-3" />
+                                )}
+                                {record.action === "approve" ? "审批通过" : "审批驳回"}
+                              </span>
+                              <span className="text-xs text-deep-500">
+                                {record.operator}
+                                <span className="text-deep-400 ml-1">({record.operatorRole})</span>
+                              </span>
+                            </div>
+                            <span className="text-xs text-deep-400">
+                              {formatDateTime(record.operatedAt)}
+                            </span>
+                          </div>
+                          {record.reason && (
+                            <div className="mt-2 pt-2 border-t border-deep-100">
+                              <p className="text-xs text-deep-500 mb-1">驳回原因：</p>
+                              <p className="text-sm text-deep-600">{record.reason}</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* 操作按钮 */}
+              <div className="flex items-center justify-end gap-2 pt-4 border-t border-deep-50">
+                {selectedRecord.status === "pending_approval" && (
+                  <>
+                    <button
+                      onClick={handleCloseDetailModal}
+                      className="btn-secondary"
+                    >
+                      <X className="w-4 h-4" />
+                      关闭
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleApprove(selectedRecord.id);
+                        handleCloseDetailModal();
+                      }}
+                      className="btn-primary bg-fuel-500 hover:bg-fuel-600"
+                    >
+                      <ThumbsUp className="w-4 h-4" />
+                      通过
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleCloseDetailModal();
+                        handleOpenReject(selectedRecord.id);
+                      }}
+                      className="btn-primary bg-alert-red hover:bg-alert-red/90"
+                    >
+                      <ThumbsDown className="w-4 h-4" />
+                      驳回
+                    </button>
+                  </>
+                )}
+                {selectedRecord.status === "rejected" && (
+                  <>
+                    <button
+                      onClick={handleCloseDetailModal}
+                      className="btn-secondary"
+                    >
+                      <X className="w-4 h-4" />
+                      关闭
+                    </button>
+                    <button
+                      onClick={handleOpenResubmit}
+                      className="btn-primary bg-repair-500 hover:bg-repair-600"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      重新提交
+                    </button>
+                  </>
+                )}
+                {selectedRecord.status === "pending" && (
+                  <>
+                    <button
+                      onClick={handleCloseDetailModal}
+                      className="btn-secondary"
+                    >
+                      <X className="w-4 h-4" />
+                      关闭
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleCloseDetailModal();
+                        handleOpenComplete(selectedRecord.id);
+                      }}
+                      className="btn-primary bg-fuel-500 hover:bg-fuel-600"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      完成维修
+                    </button>
+                  </>
+                )}
+                {selectedRecord.status === "completed" && (
+                  <button
+                    onClick={handleCloseDetailModal}
+                    className="btn-secondary"
+                  >
+                    <X className="w-4 h-4" />
+                    关闭
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 重新提交弹窗 */}
+      {showResubmitModal && selectedRecord && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-deep-900/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg animate-slide-up">
+            {/* 弹窗头部 */}
+            <div className="flex items-center justify-between p-5 border-b border-deep-50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-repair-50 flex items-center justify-center">
+                  <RefreshCw className="w-5 h-5 text-repair-500" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-deep-700">
+                    重新提交维修申请
+                  </h3>
+                  <p className="text-xs text-deep-400 mt-0.5">
+                    修改后重新提交审批
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleCloseResubmitModal}
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-deep-400 hover:text-deep-600 hover:bg-deep-50 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* 表单内容 */}
+            <div className="p-5 space-y-4">
+              {/* 上次驳回原因 */}
+              {selectedRecord.rejectReason && (
+                <div className="p-4 rounded-xl bg-alert-red/10 border border-alert-red/20">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertCircle className="w-4 h-4 text-alert-red shrink-0" />
+                    <p className="text-sm font-medium text-alert-red">上次驳回原因</p>
+                  </div>
+                  <p className="text-sm text-deep-600">{selectedRecord.rejectReason}</p>
+                </div>
+              )}
+
+              <div>
+                <label className="label">
+                  故障描述 <span className="text-alert-red">*</span>
+                </label>
+                <textarea
+                  value={resubmitDescription}
+                  onChange={(e) => setResubmitDescription(e.target.value)}
+                  placeholder="请详细描述故障情况..."
+                  rows={4}
+                  className="input resize-none"
+                  autoFocus
+                />
+                {!resubmitDescription.trim() && (
+                  <p className="mt-1 text-xs text-alert-red">请填写故障描述</p>
+                )}
+              </div>
+
+              <div>
+                <label className="label">
+                  维修厂 <span className="text-alert-red">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={resubmitWorkshop}
+                  onChange={(e) => setResubmitWorkshop(e.target.value)}
+                  placeholder="请输入维修厂名称"
+                  className="input"
+                />
+                {!resubmitWorkshop.trim() && (
+                  <p className="mt-1 text-xs text-alert-red">请填写维修厂</p>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  onClick={handleCloseResubmitModal}
+                  className="btn-secondary"
+                >
+                  <X className="w-4 h-4" />
+                  取消
+                </button>
+                <button
+                  onClick={handleResubmit}
+                  className="btn-primary bg-repair-500 hover:bg-repair-600"
+                  disabled={!resubmitDescription.trim() || !resubmitWorkshop.trim()}
+                >
+                  <Send className="w-4 h-4" />
+                  重新提交
                 </button>
               </div>
             </div>

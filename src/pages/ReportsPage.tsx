@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, Fragment } from "react";
 import {
   Fuel as FuelIcon,
   Wrench,
@@ -17,6 +17,8 @@ import {
 import {
   LineChart,
   Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -57,6 +59,8 @@ export default function ReportsPage() {
     toggleSelectedVehicle,
     clearSelectedVehicles,
     getVehicleCostTrend,
+    getVehicleAnomalyStats,
+    getVehicleAnomalyTrend,
   } = useStore();
 
   const [activeTab, setActiveTab] = useState<"monthly" | "comparison">("monthly");
@@ -152,6 +156,37 @@ export default function ReportsPage() {
     });
   }, [selectedVehicles, getVehicleCostTrend, getVehicleById]);
 
+  // 异常统计数据
+  const anomalyStatsData = useMemo(() => {
+    return selectedVehicles.map((vehicleId, index) => {
+      const vehicle = getVehicleById(vehicleId);
+      const stats = getVehicleAnomalyStats(vehicleId, 3);
+      return {
+        vehicleId,
+        plateNumber: vehicle?.plateNumber || "",
+        color: VEHICLE_COLORS[index],
+        ...stats,
+      };
+    });
+  }, [selectedVehicles, getVehicleById, getVehicleAnomalyStats]);
+
+  // 异常趋势数据
+  const anomalyTrendData = useMemo(() => {
+    const monthList = lastNMonths(6);
+    return monthList.map((month) => {
+      const row: Record<string, string | number> = { month };
+      selectedVehicles.forEach((vehicleId) => {
+        const trend = getVehicleAnomalyTrend(vehicleId, 6);
+        const monthData = trend.find((t) => t.month === month);
+        if (monthData) {
+          row[`${vehicleId}_count`] = monthData.count;
+          row[`${vehicleId}_resolved`] = monthData.resolved;
+        }
+      });
+      return row;
+    });
+  }, [selectedVehicles, getVehicleAnomalyTrend]);
+
   const LineChartTooltip = ({
     active,
     payload,
@@ -197,6 +232,60 @@ export default function ReportsPage() {
           <div key={index} className="flex items-center gap-1.5">
             <span
               className="w-3 h-3 rounded-full"
+              style={{ backgroundColor: entry.color }}
+            />
+            <span className="text-xs text-deep-500">{entry.value}</span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const BarChartTooltip = ({
+    active,
+    payload,
+    label,
+  }: {
+    active?: boolean;
+    payload?: Array<{ name: string; value: number; color: string }>;
+    label?: string;
+  }) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-white rounded-xl shadow-hover border border-deep-50/60 px-4 py-3 min-w-[180px]">
+          <p className="text-xs text-deep-400 mb-2 font-medium">{monthLabel(label || "")}</p>
+          {payload.map((entry, index) => (
+            <div key={index} className="flex items-center justify-between gap-4 mb-1 last:mb-0">
+              <div className="flex items-center gap-1.5">
+                <span
+                  className="w-2 h-2 rounded-full"
+                  style={{ backgroundColor: entry.color }}
+                />
+                <span className="text-xs text-deep-500">{entry.name}</span>
+              </div>
+              <span className="text-xs font-mono font-semibold text-deep-700 tabular-nums">
+                {entry.value} 次
+              </span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return null;
+  };
+
+  const BarChartLegend = ({
+    payload,
+  }: {
+    payload?: Array<{ value: string; color: string }>;
+  }) => {
+    if (!payload) return null;
+    return (
+      <div className="flex items-center justify-center gap-5 pt-2 flex-wrap">
+        {payload.map((entry, index) => (
+          <div key={index} className="flex items-center gap-1.5">
+            <span
+              className="w-3 h-3 rounded-sm"
               style={{ backgroundColor: entry.color }}
             />
             <span className="text-xs text-deep-500">{entry.value}</span>
@@ -948,6 +1037,165 @@ export default function ReportsPage() {
                       })}
                     </LineChart>
                   </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* 异常分析区域 */}
+              <div className="space-y-6">
+                <div className="card rounded-[12px] p-6">
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-2">
+                      <div className="w-9 h-9 rounded-xl bg-red-50 flex items-center justify-center">
+                        <AlertTriangle className="w-4.5 h-4.5 text-red-500" />
+                      </div>
+                      <div>
+                        <h3 className="section-title !mb-0">异常分析</h3>
+                        <p className="text-xs text-deep-400 mt-0.5">
+                          各车辆异常统计与趋势对比
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 异常统计卡片 */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                    {anomalyStatsData.map((stats) => (
+                      <div
+                        key={stats.vehicleId}
+                        className="p-5 rounded-2xl border border-deep-100 bg-gradient-to-br from-white to-deep-50/30 hover:shadow-md transition-shadow"
+                      >
+                        <div className="flex items-center gap-3 mb-4">
+                          <div
+                            className="w-10 h-10 rounded-xl flex items-center justify-center"
+                            style={{ backgroundColor: `${stats.color}15` }}
+                          >
+                            <Truck
+                              className="w-5 h-5"
+                              style={{ color: stats.color }}
+                            />
+                          </div>
+                          <div>
+                            <p
+                              className="text-sm font-semibold tracking-wider"
+                              style={{ color: stats.color }}
+                            >
+                              {stats.plateNumber}
+                            </p>
+                            <p className="text-xs text-deep-400">
+                              近3个月异常统计
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-3 mb-4">
+                          <div className="text-center p-2 rounded-lg bg-deep-50/50">
+                            <p className="text-2xl font-bold text-deep-700">
+                              {stats.total}
+                            </p>
+                            <p className="text-xs text-deep-400">异常总数</p>
+                          </div>
+                          <div className="text-center p-2 rounded-lg bg-red-50">
+                            <p className="text-2xl font-bold text-red-600">
+                              {stats.pending}
+                            </p>
+                            <p className="text-xs text-red-400">待处理</p>
+                          </div>
+                          <div className="text-center p-2 rounded-lg bg-green-50">
+                            <p className="text-2xl font-bold text-green-600">
+                              {stats.resolved}
+                            </p>
+                            <p className="text-xs text-green-400">已解决</p>
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-xs text-deep-500">已处理率</span>
+                            <span className="text-xs font-semibold text-deep-700">
+                              {(stats.resolvedRate * 100).toFixed(0)}%
+                            </span>
+                          </div>
+                          <div className="w-full h-2.5 bg-deep-100 rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all duration-500"
+                              style={{
+                                width: `${stats.resolvedRate * 100}%`,
+                                backgroundColor: stats.resolvedRate >= 0.8 ? '#22c55e' : stats.resolvedRate >= 0.5 ? '#f97316' : '#ef4444',
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* 异常趋势柱状图 */}
+                  <div className="border-t border-deep-50 pt-6">
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center">
+                        <BarChart3 className="w-4 h-4 text-purple-500" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold text-deep-700">近6个月异常趋势</h4>
+                        <p className="text-xs text-deep-400">
+                          各车辆异常总数与已解决数月度对比
+                        </p>
+                      </div>
+                    </div>
+                    <div className="w-full h-[320px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={anomalyTrendData}
+                          margin={{ top: 20, right: 24, left: 0, bottom: 0 }}
+                        >
+                          <CartesianGrid
+                            strokeDasharray="3 3"
+                            stroke="#E8EEF7"
+                            vertical={false}
+                          />
+                          <XAxis
+                            dataKey="month"
+                            tick={{ fill: '#A3B9DD', fontSize: 12 }}
+                            tickLine={false}
+                            axisLine={{ stroke: '#E8EEF7' }}
+                            dy={8}
+                            tickFormatter={(value) => monthLabel(value).replace("年", "/").replace("月", "")}
+                          />
+                          <YAxis
+                            tick={{ fill: '#A3B9DD', fontSize: 12 }}
+                            tickLine={false}
+                            axisLine={false}
+                            width={48}
+                            allowDecimals={false}
+                          />
+                          <Tooltip content={<BarChartTooltip />} cursor={{ fill: '#F5F7FA', opacity: 0.5 }} />
+                          <Legend content={<BarChartLegend />} />
+                          {selectedVehicles.map((vehicleId, index) => {
+                            const vehicle = getVehicleById(vehicleId);
+                            const color = VEHICLE_COLORS[index];
+                            return (
+                              <Fragment key={vehicleId}>
+                                <Bar
+                                  dataKey={`${vehicleId}_count`}
+                                  name={`${vehicle?.plateNumber || ''} - 异常总数`}
+                                  fill={color}
+                                  radius={[4, 4, 0, 0]}
+                                  barSize={16}
+                                />
+                                <Bar
+                                  dataKey={`${vehicleId}_resolved`}
+                                  name={`${vehicle?.plateNumber || ''} - 已解决`}
+                                  fill={`${color}66`}
+                                  radius={[4, 4, 0, 0]}
+                                  barSize={16}
+                                />
+                              </Fragment>
+                            );
+                          })}
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

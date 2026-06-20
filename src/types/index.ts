@@ -44,24 +44,6 @@ export interface FuelRecord {
 export type MaintenanceType = "routine" | "fault" | "overhaul";
 export type MaintenanceStatus = "pending_approval" | "rejected" | "pending" | "completed";
 
-export interface MaintenanceRecord {
-  id: string;
-  vehicleId: string;
-  type: MaintenanceType;
-  description: string;
-  workshop: string;
-  cost: number;
-  mileageAfter: number;
-  applyDate: string;
-  finishDate: string;
-  status: MaintenanceStatus;
-  rejectReason?: string;
-  approvedAt?: string;
-  rejectedAt?: string;
-  notes?: string;
-  createdAt: string;
-}
-
 export interface MaintenanceRule {
   id: string;
   vehicleId: string;
@@ -138,3 +120,68 @@ export interface ImportPreviewResult<T = any> {
 }
 
 export type ImportEntityType = "vehicle" | "fuel" | "maintenance";
+
+export type AnomalyType = "fuel_high" | "fuel_mileage" | "maintenance_overdue" | "maintenance_overdue_km" | "maintenance_super_overdue" | "maintenance_high_cost";
+export type AnomalyStatus = "pending" | "handling" | "resolved";
+
+export interface AnomalyRecord {
+  id: string;
+  vehicleId: string;
+  plateNumber: string;
+  type: AnomalyType;
+  title: string;
+  description: string;
+  relatedRecordId?: string;
+  relatedRecordType?: "fuel" | "maintenance";
+  severity: "low" | "medium" | "high";
+  status: AnomalyStatus;
+  detectedAt: string;
+  handledAt?: string;
+  handledBy?: string;
+  handleNote?: string;
+  value?: number;
+  threshold?: number;
+}
+
+export type ApprovalAction = "approve" | "reject";
+
+export interface ApprovalRecord {
+  id: string;
+  maintenanceId: string;
+  action: ApprovalAction;
+  reason?: string;
+  operator: string;
+  operatorRole: string;
+  operatedAt: string;
+}
+
+export interface ImportBatch {
+  id: string;
+  entityType: ImportEntityType;
+  fileName: string;
+  importedAt: string;
+  importedBy: string;
+  result: ImportResult;
+  recordIds: string[];
+  rolledBack: boolean;
+  rolledBackAt?: string;
+}
+
+export interface MaintenanceRecord {
+  id: string;
+  vehicleId: string;
+  type: MaintenanceType;
+  description: string;
+  workshop: string;
+  cost: number;
+  mileageAfter: number;
+  applyDate: string;
+  finishDate: string;
+  status: MaintenanceStatus;
+  rejectReason?: string;
+  approvedAt?: string;
+  rejectedAt?: string;
+  approvalRecords?: ApprovalRecord[];
+  notes?: string;
+  createdAt: string;
+}

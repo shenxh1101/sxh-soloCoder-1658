@@ -6,6 +6,7 @@ import {
   Wrench,
   BarChart3,
   Bell,
+  AlertTriangle,
   ChevronRight,
   User,
   Settings,
@@ -43,6 +44,11 @@ const navItems = [
     path: "/reminders",
     label: "保养提醒",
     icon: Bell,
+  },
+  {
+    path: "/anomalies",
+    label: "异常中心",
+    icon: AlertTriangle,
   },
   {
     path: "/settings",

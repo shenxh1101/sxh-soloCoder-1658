@@ -7,6 +7,7 @@ import FuelPage from "@/pages/FuelPage";
 import MaintenancePage from "@/pages/MaintenancePage";
 import ReportsPage from "@/pages/ReportsPage";
 import RemindersPage from "@/pages/RemindersPage";
+import AnomaliesPage from "@/pages/AnomaliesPage";
 import SettingsPage from "@/pages/SettingsPage";
 
 export default function App() {
@@ -26,6 +27,7 @@ export default function App() {
           <Route path="/maintenance/new" element={<MaintenancePage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/reminders" element={<RemindersPage />} />
+          <Route path="/anomalies" element={<AnomaliesPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Dashboard />} />
         </Routes>

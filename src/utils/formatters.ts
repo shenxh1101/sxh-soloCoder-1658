@@ -61,3 +61,50 @@ export function monthLabel(monthStr: string): string {
   const [y, m] = monthStr.split("-");
   return `${y}年${+m}月`;
 }
+
+export function anomalyTypeLabel(type: string): string {
+  const map: Record<string, string> = {
+    fuel_high: "油耗偏高",
+    fuel_mileage: "加油里程异常",
+    maintenance_overdue: "维修超期(时间)",
+    maintenance_overdue_km: "保养超期(里程)",
+    maintenance_super_overdue: "严重超期未保养",
+    maintenance_high_cost: "维修费用偏高",
+  };
+  return map[type] || type;
+}
+
+export function anomalyStatusLabel(status: string): string {
+  const map: Record<string, string> = {
+    pending: "待处理",
+    handling: "处理中",
+    resolved: "已解决",
+  };
+  return map[status] || status;
+}
+
+export function anomalySeverityLabel(severity: string): string {
+  const map: Record<string, string> = {
+    low: "低",
+    medium: "中",
+    high: "高",
+  };
+  return map[severity] || severity;
+}
+
+export function approvalActionLabel(action: string): string {
+  const map: Record<string, string> = {
+    approve: "通过",
+    reject: "驳回",
+  };
+  return map[action] || action;
+}
+
+export function importEntityTypeLabel(type: string): string {
+  const map: Record<string, string> = {
+    vehicle: "车辆档案",
+    fuel: "加油记录",
+    maintenance: "维修记录",
+  };
+  return map[type] || type;
+}

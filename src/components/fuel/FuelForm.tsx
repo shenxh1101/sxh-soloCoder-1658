@@ -157,7 +157,7 @@ export default function FuelForm({
     };
 
     if (isBackfill) {
-      addFuelRecordBackfill(recordData);
+      addFuelRecordBackfill(recordData, beforeCreatedAt);
     } else {
       addFuelRecord(recordData);
     }
